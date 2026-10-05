@@ -1,0 +1,1623 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model School {
+  id                     String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                   String                  @unique(map: "schools_code_key") @db.VarChar(32)
+  name                   String                  @db.VarChar(200)
+  timezone               String                  @default("Europe/London") @db.VarChar(64)
+  status                 String                  @default("active") @db.VarChar(16)
+  createdAt              DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships            SchoolMembership[]
+  roles                  Role[]
+  membershipRoles        MembershipRole[]
+  rolePermissions        RolePermission[]
+  auditEvents            AuditEvent[]
+  outboxEvents            OutboxEvent[]
+  persons                Person[]
+  academicYears          AcademicYear[]
+  terms                  Term[]
+  yearGroups             YearGroup[]
+  forms                  Form[]
+  houses                 House[]
+  departments            Department[]
+  subjects               Subject[]
+  pupilProfiles          PupilProfile[]
+  staffProfiles          StaffProfile[]
+  parentProfiles         ParentCarerProfile[]
+  pupilContacts          PupilContact[]
+  pupilEnrolments        PupilEnrolment[]
+  classGroups            ClassGroup[]
+  classMemberships       ClassMembership[]
+  timetableSlots         TimetableSlot[]
+  curriculumPlans        CurriculumPlan[]
+  schemesOfWork          SchemeOfWork[]
+  gradeScales             GradeScale[]
+  gradeBands              GradeBand[]
+  assessments             Assessment[]
+  assessmentResults       AssessmentResult[]
+  assessmentRevisions     AssessmentResultRevision[]
+  pupilTargets            PupilTarget[]
+  examSeries              ExamSeries[]
+  examSessions            ExamSession[]
+  examCandidates          ExamCandidate[]
+  examResults             ExamResult[]
+  examResultRevisions     ExamResultRevision[]
+  applications           Application[]
+  applicationHistory     ApplicationStatusHistory[]
+  applicationDocuments  ApplicationDocument[]
+  offers                 Offer[]
+  enrolmentHandoffs      EnrolmentHandoff[]
+  charges                Charge[]
+  invoices               Invoice[]
+  invoiceLines           InvoiceLine[]
+  payments               Payment[]
+  refunds                Refund[]
+  paymentProviderEvents  PaymentProviderEvent[]
+  attendanceCodes        AttendanceCode[]
+  attendanceSessions     AttendanceSession[]
+  attendanceRecords      AttendanceRecord[]
+  attendanceNotes        AttendanceNote[]
+  attendanceRevisions    AttendanceRecordRevision[]
+  attendanceInterventions AttendanceIntervention[]
+  sendProfiles           SendProfile[]
+  medicalConditions      MedicalCondition[]
+  pupilMedicalConditions PupilMedicalCondition[]
+  behaviourIncidents     BehaviourIncident[]
+  behaviourRewards       BehaviourReward[]
+  behaviourSanctions     BehaviourSanction[]
+  detentions             Detention[]
+  safeguardingCases      SafeguardingCase[]
+  safeguardingConcerns   SafeguardingConcern[]
+  safeguardingActions    SafeguardingAction[]
+  safeguardingMeetings   SafeguardingMeeting[]
+  safeguardingGrants     SafeguardingCaseAccess[]
+  supportPlans           SupportPlan[]
+  sendTargets            SendTarget[]
+  sendTargetReviews      SendTargetReview[]
+  sendInterventions      SendIntervention[]
+  provisionRecords       ProvisionRecord[]
+  medications            Medication[]
+  medicationAuthorizations MedicationAuthorization[]
+  medicationAdministrations MedicationAdministration[]
+  healthcarePlans        HealthcarePlan[]
+  medicalIncidents       MedicalIncident[]
+
+  @@map("schools")
+}
+
+model User {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  emailNormalized String             @unique(map: "users_email_normalized_key") @map("email_normalized") @db.VarChar(320)
+  passwordHash    String             @map("password_hash") @db.VarChar(255)
+  status          String             @default("active") @db.VarChar(16)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships     SchoolMembership[]
+  persons         Person[]
+  auditEvents     AuditEvent[]
+  attendanceMarks AttendanceRecord[] @relation("AttendanceRecordMarker")
+  attendanceNotes AttendanceNote[]
+  attendanceRevisions AttendanceRecordRevision[]
+  attendanceInterventions AttendanceIntervention[]
+  safeguardingCaseGrants SafeguardingCaseAccess[] @relation("SafeguardingCaseGrantee")
+  safeguardingCaseGrantor SafeguardingCaseAccess[] @relation("SafeguardingCaseGrantor")
+  safeguardingConcernsReported SafeguardingConcern[]
+  medicationAuthorizationsApproved MedicationAuthorization[] @relation("MedicationAuthorizationApprover")
+  medicationAdministrationsRecorded MedicationAdministration[] @relation("MedicationAdministrationActor")
+  medicalIncidentsReported MedicalIncident[] @relation("MedicalIncidentReporter")
+  assessmentsCreated Assessment[] @relation("AssessmentCreator")
+  assessmentResultsEntered AssessmentResult[] @relation("AssessmentResultAuthor")
+  assessmentRevisionsChanged AssessmentResultRevision[] @relation("AssessmentRevisionActor")
+  pupilTargetsCreated PupilTarget[] @relation("PupilTargetCreator")
+  examSeriesCreated ExamSeries[] @relation("ExamSeriesCreator")
+  examResultsEntered ExamResult[] @relation("ExamResultAuthor")
+  examResultRevisionsChanged ExamResultRevision[] @relation("ExamResultRevisionActor")
+  applicationsSubmitted Application[] @relation("ApplicationSubmitter")
+  applicationActions ApplicationStatusHistory[] @relation("ApplicationHistoryActor")
+  offersCreated Offer[] @relation("OfferCreator")
+  handoffsVerified EnrolmentHandoff[] @relation("HandoffVerifier")
+  chargesCreated Charge[] @relation("ChargeCreator")
+  invoicesCreated Invoice[] @relation("InvoiceCreator")
+  parentInvoices Invoice[] @relation("InvoiceParent")
+  paymentsInitiated Payment[] @relation("PaymentInitiator")
+  refundsCreated Refund[] @relation("RefundCreator")
+
+  @@index([status], map: "users_status_idx")
+  @@map("users")
+}
+
+model SchoolMembership {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId        String           @map("school_id") @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  status          String           @default("invited") @db.VarChar(16)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  school          School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  membershipRoles MembershipRole[]
+
+  @@unique([schoolId, userId], map: "school_memberships_school_user_key")
+  @@unique([schoolId, id], map: "school_memberships_school_id_key")
+  @@index([userId, status], map: "school_memberships_user_status_idx")
+  @@map("school_memberships")
+}
+
+model Role {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId        String           @map("school_id") @db.Uuid
+  code            String           @db.VarChar(64)
+  name            String           @db.VarChar(120)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  school          School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  membershipRoles MembershipRole[]
+  rolePermissions RolePermission[]
+
+  @@unique([schoolId, code], map: "roles_school_code_key")
+  @@unique([schoolId, id], map: "roles_school_id_key")
+  @@map("roles")
+}
+
+model Permission {
+  code            String           @id @db.VarChar(120)
+  description     String           @db.VarChar(240)
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model MembershipRole {
+  schoolId     String           @map("school_id") @db.Uuid
+  membershipId String           @map("membership_id") @db.Uuid
+  roleId       String           @map("role_id") @db.Uuid
+  grantedAt    DateTime         @default(now()) @map("granted_at") @db.Timestamptz(6)
+  school       School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  membership   SchoolMembership @relation(fields: [schoolId, membershipId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  role         Role             @relation(fields: [schoolId, roleId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([schoolId, membershipId, roleId])
+  @@index([schoolId, roleId], map: "membership_roles_role_idx")
+  @@map("membership_roles")
+}
+
+model RolePermission {
+  schoolId       String     @map("school_id") @db.Uuid
+  roleId         String     @map("role_id") @db.Uuid
+  permissionCode String     @map("permission_code") @db.VarChar(120)
+  grantedAt      DateTime   @default(now()) @map("granted_at") @db.Timestamptz(6)
+  school         School     @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  role           Role       @relation(fields: [schoolId, roleId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  permission     Permission @relation(fields: [permissionCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([schoolId, roleId, permissionCode])
+  @@index([permissionCode], map: "role_permissions_permission_idx")
+  @@map("role_permissions")
+}
+
+model Person {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String              @map("school_id") @db.Uuid
+  userId         String?             @map("user_id") @db.Uuid
+  legalFirstName String              @map("legal_first_name") @db.VarChar(100)
+  preferredName  String?             @map("preferred_name") @db.VarChar(100)
+  lastName       String              @map("last_name") @db.VarChar(100)
+  dateOfBirth    DateTime?           @map("date_of_birth") @db.Date
+  seedKey        String?             @map("seed_key") @db.VarChar(80)
+  addressLine1   String?             @map("address_line_1") @db.VarChar(160)
+  addressLine2   String?             @map("address_line_2") @db.VarChar(160)
+  town           String?             @db.VarChar(100)
+  postcode       String?             @db.VarChar(16)
+  phoneNumber    String?             @map("phone_number") @db.VarChar(32)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  school         School              @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user           User?               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupilProfile   PupilProfile?
+  staffProfile   StaffProfile?
+  parentProfile  ParentCarerProfile?
+
+  @@unique([schoolId, id], map: "persons_school_id_key")
+  @@unique([schoolId, userId], map: "persons_school_user_key")
+  @@unique([schoolId, seedKey], map: "persons_school_seed_key")
+  @@index([userId], map: "persons_user_idx")
+  @@index([schoolId, lastName, legalFirstName], map: "persons_school_name_idx")
+  @@map("persons")
+}
+
+model AuditEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId    String?  @map("school_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(100)
+  entityType  String   @map("entity_type") @db.VarChar(100)
+  entityId    String?  @map("entity_id") @db.Uuid
+  occurredAt  DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  requestId   String?  @map("request_id") @db.VarChar(100)
+  metadata    Json     @default("{}") @db.JsonB
+  school      School?  @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([schoolId, occurredAt(sort: Desc)], map: "audit_events_school_time_idx")
+  @@index([actorUserId, occurredAt(sort: Desc)], map: "audit_events_actor_time_idx")
+  @@index([entityType, entityId, occurredAt(sort: Desc)], map: "audit_events_entity_time_idx")
+  @@map("audit_events")
+}
+
+model PupilProfile {
+  id                 String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId           String                  @map("school_id") @db.Uuid
+  personId           String                  @map("person_id") @db.Uuid
+  upn                String?                 @db.VarChar(13)
+  admissionNumber    String                  @map("admission_number") @db.VarChar(32)
+  gender             String                  @default("not_recorded") @db.VarChar(32)
+  admissionDate      DateTime                @map("admission_date") @db.Date
+  status             String                  @default("enrolled") @db.VarChar(16)
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  school             School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  person             Person                  @relation(fields: [schoolId, personId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  contacts           PupilContact[]
+  enrolments         PupilEnrolment[]
+  classMemberships   ClassMembership[]
+  attendanceRecords  AttendanceRecord[]
+  attendanceInterventions AttendanceIntervention[]
+  sendProfile        SendProfile?
+  medicalConditions  PupilMedicalCondition[]
+  behaviourIncidents BehaviourIncident[]
+  behaviourRewards   BehaviourReward[]
+  behaviourSanctions BehaviourSanction[]
+  detentions         Detention[]
+  safeguardingCases  SafeguardingCase[]
+  safeguardingConcerns SafeguardingConcern[]
+  supportPlans          SupportPlan[]
+  sendInterventions     SendIntervention[]
+  provisionRecords     ProvisionRecord[]
+  medicationAuthorizations MedicationAuthorization[]
+  medicationAdministrations MedicationAdministration[]
+  healthcarePlans      HealthcarePlan[]
+  medicalIncidents     MedicalIncident[]
+  assessmentResults    AssessmentResult[]
+  pupilTargets         PupilTarget[]
+  examCandidates       ExamCandidate[]
+  pupilApplications    Application[] @relation("ApplicationEnrolledPupil")
+  admissionHandoff     EnrolmentHandoff?
+  charges              Charge[]
+
+  @@unique([schoolId, id], map: "pupil_profiles_school_id_key")
+  @@unique([schoolId, personId], map: "pupil_profiles_school_person_key")
+  @@unique([schoolId, admissionNumber], map: "pupil_profiles_school_admission_key")
+  @@unique([schoolId, upn], map: "pupil_profiles_school_upn_key")
+  @@index([schoolId, status, admissionDate], map: "pupil_profiles_school_status_idx")
+  @@map("pupil_profiles")
+}
+
+model StaffProfile {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId     String       @map("school_id") @db.Uuid
+  personId     String       @map("person_id") @db.Uuid
+  departmentId String?      @map("department_id") @db.Uuid
+  staffNumber  String       @map("staff_number") @db.VarChar(32)
+  staffType    String       @map("staff_type") @db.VarChar(32)
+  jobTitle     String       @map("job_title") @db.VarChar(120)
+  email        String       @db.VarChar(320)
+  startDate    DateTime     @map("start_date") @db.Date
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  school       School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  person       Person       @relation(fields: [schoolId, personId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  department   Department?  @relation(fields: [schoolId, departmentId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  tutorForms   Form[]
+  classes      ClassGroup[]
+  timetableSlots TimetableSlot[]
+
+  @@unique([schoolId, id], map: "staff_profiles_school_id_key")
+  @@unique([schoolId, personId], map: "staff_profiles_school_person_key")
+  @@unique([schoolId, staffNumber], map: "staff_profiles_school_number_key")
+  @@index([schoolId, staffType], map: "staff_profiles_school_type_idx")
+  @@map("staff_profiles")
+}
+
+model ParentCarerProfile {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId  String         @map("school_id") @db.Uuid
+  personId  String         @map("person_id") @db.Uuid
+  email     String         @db.VarChar(320)
+  phone     String         @db.VarChar(32)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  school    School         @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  person    Person         @relation(fields: [schoolId, personId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  pupils    PupilContact[]
+  medicationAuthorizations MedicationAuthorization[]
+
+  @@unique([schoolId, id], map: "parent_carer_profiles_school_id_key")
+  @@unique([schoolId, personId], map: "parent_carer_profiles_school_person_key")
+  @@map("parent_carer_profiles")
+}
+
+model AcademicYear {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId   String           @map("school_id") @db.Uuid
+  code       String           @db.VarChar(16)
+  startsOn   DateTime         @map("starts_on") @db.Date
+  endsOn     DateTime         @map("ends_on") @db.Date
+  isCurrent  Boolean          @default(false) @map("is_current")
+  school     School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  terms      Term[]
+  enrolments PupilEnrolment[]
+  classes    ClassGroup[]
+  curriculumPlans CurriculumPlan[]
+  examSeries ExamSeries[]
+  enrolmentHandoffs EnrolmentHandoff[]
+
+  @@unique([schoolId, id], map: "academic_years_school_id_key")
+  @@unique([schoolId, code], map: "academic_years_school_code_key")
+  @@map("academic_years")
+}
+
+model Term {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String       @map("school_id") @db.Uuid
+  academicYearId String       @map("academic_year_id") @db.Uuid
+  code           String       @db.VarChar(24)
+  startsOn       DateTime     @map("starts_on") @db.Date
+  endsOn         DateTime     @map("ends_on") @db.Date
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  academicYear   AcademicYear @relation(fields: [schoolId, academicYearId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, academicYearId, code], map: "terms_school_year_code_key")
+  @@map("terms")
+}
+
+model YearGroup {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId   String           @map("school_id") @db.Uuid
+  code       String           @db.VarChar(16)
+  name       String           @db.VarChar(32)
+  keyStage   String           @map("key_stage") @db.VarChar(8)
+  sortOrder  Int              @map("sort_order")
+  school     School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  forms      Form[]
+  enrolments PupilEnrolment[]
+  classes    ClassGroup[]
+  curriculumPlans CurriculumPlan[]
+  applications Application[]
+  enrolmentHandoffs EnrolmentHandoff[]
+
+  @@unique([schoolId, id], map: "year_groups_school_id_key")
+  @@unique([schoolId, code], map: "year_groups_school_code_key")
+  @@map("year_groups")
+}
+
+model Form {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId     String           @map("school_id") @db.Uuid
+  yearGroupId  String           @map("year_group_id") @db.Uuid
+  tutorStaffId String?          @map("tutor_staff_id") @db.Uuid
+  code         String           @db.VarChar(24)
+  school       School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  yearGroup    YearGroup        @relation(fields: [schoolId, yearGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  tutor        StaffProfile?    @relation(fields: [schoolId, tutorStaffId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  enrolments   PupilEnrolment[]
+  enrolmentHandoffs EnrolmentHandoff[]
+
+  @@unique([schoolId, id], map: "forms_school_id_key")
+  @@unique([schoolId, yearGroupId, id], map: "forms_school_year_id_key")
+  @@unique([schoolId, code], map: "forms_school_code_key")
+  @@index([schoolId, yearGroupId], map: "forms_school_year_group_idx")
+  @@map("forms")
+}
+
+model House {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId   String           @map("school_id") @db.Uuid
+  code       String           @db.VarChar(24)
+  name       String           @db.VarChar(64)
+  school     School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  enrolments PupilEnrolment[]
+
+  @@unique([schoolId, id], map: "houses_school_id_key")
+  @@unique([schoolId, code], map: "houses_school_code_key")
+  @@map("houses")
+}
+
+model Department {
+  id       String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId String         @map("school_id") @db.Uuid
+  code     String         @db.VarChar(24)
+  name     String         @db.VarChar(100)
+  school   School         @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  staff    StaffProfile[]
+  subjects Subject[]
+
+  @@unique([schoolId, id], map: "departments_school_id_key")
+  @@unique([schoolId, code], map: "departments_school_code_key")
+  @@map("departments")
+}
+
+model Subject {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId     String       @map("school_id") @db.Uuid
+  departmentId String?      @map("department_id") @db.Uuid
+  code         String       @db.VarChar(24)
+  name         String       @db.VarChar(100)
+  school       School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  department   Department?  @relation(fields: [schoolId, departmentId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  classes      ClassGroup[]
+  curriculumPlans CurriculumPlan[]
+  schemesOfWork SchemeOfWork[]
+  examCandidates ExamCandidate[]
+  pupilTargets  PupilTarget[]
+  examSessions  ExamSession[]
+
+  @@unique([schoolId, id], map: "subjects_school_id_key")
+  @@unique([schoolId, code], map: "subjects_school_code_key")
+  @@index([schoolId, departmentId], map: "subjects_school_department_idx")
+  @@map("subjects")
+}
+
+model PupilContact {
+  schoolId                  String             @map("school_id") @db.Uuid
+  pupilId                   String             @map("pupil_id") @db.Uuid
+  guardianPersonId          String             @map("guardian_person_id") @db.Uuid
+  relationship              String             @db.VarChar(32)
+  isPrimary                 Boolean            @default(false) @map("is_primary")
+  canCollect                Boolean            @default(false) @map("can_collect")
+  hasParentalResponsibility Boolean            @default(false) @map("has_parental_responsibility")
+  canViewPortal             Boolean            @default(false) @map("can_view_portal")
+  startsOn                  DateTime           @default(dbgenerated("CURRENT_DATE")) @map("starts_on") @db.Date
+  endsOn                    DateTime?          @map("ends_on") @db.Date
+  school                    School             @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil                     PupilProfile       @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  guardian                  ParentCarerProfile @relation(fields: [schoolId, guardianPersonId], references: [schoolId, personId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([schoolId, pupilId, guardianPersonId])
+  @@index([schoolId, guardianPersonId], map: "pupil_contacts_guardian_idx")
+  @@map("pupil_contacts")
+}
+
+model PupilEnrolment {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String       @map("school_id") @db.Uuid
+  pupilId        String       @map("pupil_id") @db.Uuid
+  academicYearId String       @map("academic_year_id") @db.Uuid
+  yearGroupId    String       @map("year_group_id") @db.Uuid
+  formId         String       @map("form_id") @db.Uuid
+  houseId        String?      @map("house_id") @db.Uuid
+  startsOn       DateTime     @map("starts_on") @db.Date
+  endsOn         DateTime?    @map("ends_on") @db.Date
+  status         String       @default("active") @db.VarChar(16)
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil          PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  academicYear   AcademicYear @relation(fields: [schoolId, academicYearId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  yearGroup      YearGroup    @relation(fields: [schoolId, yearGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  form           Form         @relation(fields: [schoolId, yearGroupId, formId], references: [schoolId, yearGroupId, id], onDelete: Restrict, onUpdate: Cascade)
+  house          House?       @relation(fields: [schoolId, houseId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "pupil_enrolments_school_id_key")
+  @@unique([schoolId, pupilId, academicYearId], map: "pupil_enrolments_school_pupil_year_key")
+  @@index([schoolId, yearGroupId, formId], map: "pupil_enrolments_school_form_idx")
+  @@map("pupil_enrolments")
+}
+
+model ClassGroup {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String            @map("school_id") @db.Uuid
+  academicYearId String            @map("academic_year_id") @db.Uuid
+  yearGroupId    String            @map("year_group_id") @db.Uuid
+  subjectId      String            @map("subject_id") @db.Uuid
+  teacherStaffId String            @map("teacher_staff_id") @db.Uuid
+  code           String            @db.VarChar(32)
+  school         School            @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  academicYear   AcademicYear      @relation(fields: [schoolId, academicYearId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  yearGroup      YearGroup         @relation(fields: [schoolId, yearGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  subject        Subject           @relation(fields: [schoolId, subjectId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  teacher        StaffProfile      @relation(fields: [schoolId, teacherStaffId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  memberships    ClassMembership[]
+  attendanceSessions AttendanceSession[]
+  timetableSlots TimetableSlot[]
+  assessments    Assessment[]
+
+  @@unique([schoolId, id], map: "class_groups_school_id_key")
+  @@unique([schoolId, academicYearId, yearGroupId, subjectId], map: "class_groups_school_year_subject_key")
+  @@unique([schoolId, code], map: "class_groups_school_code_key")
+  @@index([schoolId, teacherStaffId], map: "class_groups_school_teacher_idx")
+  @@map("class_groups")
+}
+
+model ClassMembership {
+  schoolId     String       @map("school_id") @db.Uuid
+  classGroupId String       @map("class_group_id") @db.Uuid
+  pupilId      String       @map("pupil_id") @db.Uuid
+  joinedOn     DateTime     @default(now()) @map("joined_on") @db.Date
+  school       School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  classGroup   ClassGroup   @relation(fields: [schoolId, classGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  pupil        PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([schoolId, classGroupId, pupilId])
+  @@index([schoolId, pupilId], map: "class_memberships_school_pupil_idx")
+  @@map("class_memberships")
+}
+
+model CurriculumPlan {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String       @map("school_id") @db.Uuid
+  academicYearId String       @map("academic_year_id") @db.Uuid
+  yearGroupId    String       @map("year_group_id") @db.Uuid
+  subjectId      String       @map("subject_id") @db.Uuid
+  title          String       @db.VarChar(160)
+  overview       String       @db.Text
+  status         String       @default("active") @db.VarChar(16)
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  academicYear   AcademicYear @relation(fields: [schoolId, academicYearId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  yearGroup      YearGroup    @relation(fields: [schoolId, yearGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  subject        Subject      @relation(fields: [schoolId, subjectId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  schemes        SchemeOfWork[]
+
+  @@unique([schoolId, id], map: "curriculum_plans_school_id_key")
+  @@unique([schoolId, academicYearId, yearGroupId, subjectId], map: "curriculum_plans_school_year_group_subject_key")
+  @@index([schoolId, academicYearId, yearGroupId], map: "curriculum_plans_year_group_idx")
+  @@map("curriculum_plans")
+}
+
+model SchemeOfWork {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId         String         @map("school_id") @db.Uuid
+  curriculumPlanId String         @map("curriculum_plan_id") @db.Uuid
+  subjectId        String         @map("subject_id") @db.Uuid
+  title            String         @db.VarChar(160)
+  sequence         Int
+  summary          String         @db.Text
+  startsOn         DateTime?      @map("starts_on") @db.Date
+  endsOn           DateTime?      @map("ends_on") @db.Date
+  status           String         @default("planned") @db.VarChar(16)
+  school           School         @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  curriculumPlan   CurriculumPlan @relation(fields: [schoolId, curriculumPlanId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  subject          Subject        @relation(fields: [schoolId, subjectId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "schemes_of_work_school_id_key")
+  @@unique([schoolId, curriculumPlanId, sequence], map: "schemes_of_work_plan_sequence_key")
+  @@index([schoolId, curriculumPlanId, status], map: "schemes_of_work_plan_status_idx")
+  @@map("schemes_of_work")
+}
+
+model TimetableSlot {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String       @map("school_id") @db.Uuid
+  classGroupId   String       @map("class_group_id") @db.Uuid
+  teacherStaffId String       @map("teacher_staff_id") @db.Uuid
+  dayOfWeek      Int          @map("day_of_week")
+  startsAt       DateTime     @map("starts_at") @db.Time(0)
+  endsAt         DateTime     @map("ends_at") @db.Time(0)
+  room           String?      @db.VarChar(40)
+  effectiveFrom  DateTime     @map("effective_from") @db.Date
+  effectiveTo    DateTime?    @map("effective_to") @db.Date
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  classGroup     ClassGroup   @relation(fields: [schoolId, classGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  teacher        StaffProfile @relation(fields: [schoolId, teacherStaffId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "timetable_slots_school_id_key")
+  @@index([schoolId, classGroupId, dayOfWeek, effectiveFrom], map: "timetable_slots_class_schedule_idx")
+  @@index([schoolId, teacherStaffId, dayOfWeek, effectiveFrom], map: "timetable_slots_teacher_schedule_idx")
+  @@map("timetable_slots")
+}
+
+model GradeScale {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId   String      @map("school_id") @db.Uuid
+  code       String      @db.VarChar(32)
+  name       String      @db.VarChar(120)
+  scaleType  String      @map("scale_type") @db.VarChar(24)
+  school     School      @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  bands      GradeBand[]
+  assessments Assessment[]
+
+  @@unique([schoolId, id], map: "grade_scales_school_id_key")
+  @@unique([schoolId, code], map: "grade_scales_school_code_key")
+  @@map("grade_scales")
+}
+
+model GradeBand {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId     String    @map("school_id") @db.Uuid
+  gradeScaleId String    @map("grade_scale_id") @db.Uuid
+  code         String    @db.VarChar(24)
+  label        String    @db.VarChar(80)
+  minScore     Decimal   @map("min_score") @db.Decimal(8, 2)
+  maxScore     Decimal   @map("max_score") @db.Decimal(8, 2)
+  sortOrder    Int       @map("sort_order")
+  school       School    @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  gradeScale   GradeScale @relation(fields: [schoolId, gradeScaleId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "grade_bands_school_id_key")
+  @@unique([schoolId, gradeScaleId, code], map: "grade_bands_scale_code_key")
+  @@index([schoolId, gradeScaleId, minScore, maxScore], map: "grade_bands_scale_range_idx")
+  @@map("grade_bands")
+}
+
+model Assessment {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId        String                @map("school_id") @db.Uuid
+  classGroupId    String                @map("class_group_id") @db.Uuid
+  gradeScaleId    String?               @map("grade_scale_id") @db.Uuid
+  createdByUserId String                @map("created_by_user_id") @db.Uuid
+  title           String                @db.VarChar(160)
+  assessmentType  String                @map("assessment_type") @db.VarChar(24)
+  maxScore        Decimal               @map("max_score") @db.Decimal(8, 2)
+  assessedOn      DateTime              @map("assessed_on") @db.Date
+  source          String                @default("teacher") @db.VarChar(24)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  school          School                @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  classGroup      ClassGroup            @relation(fields: [schoolId, classGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  gradeScale      GradeScale?           @relation(fields: [schoolId, gradeScaleId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       User                  @relation("AssessmentCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  results         AssessmentResult[]
+
+  @@unique([schoolId, id], map: "assessments_school_id_key")
+  @@index([schoolId, classGroupId, assessedOn], map: "assessments_class_date_idx")
+  @@map("assessments")
+}
+
+model AssessmentResult {
+  id                String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId          String                     @map("school_id") @db.Uuid
+  assessmentId      String                     @map("assessment_id") @db.Uuid
+  pupilId           String                     @map("pupil_id") @db.Uuid
+  score             Decimal                    @db.Decimal(8, 2)
+  gradeCode         String?                    @map("grade_code") @db.VarChar(24)
+  comments          String?                    @db.VarChar(1000)
+  source            String                     @db.VarChar(24)
+  enteredByUserId   String                     @map("entered_by_user_id") @db.Uuid
+  recordedAt        DateTime                   @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  revision          Int                        @default(1)
+  school            School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assessment        Assessment                 @relation(fields: [schoolId, assessmentId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  pupil             PupilProfile               @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  enteredBy         User                       @relation("AssessmentResultAuthor", fields: [enteredByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  revisions         AssessmentResultRevision[]
+
+  @@unique([schoolId, id], map: "assessment_results_school_id_key")
+  @@unique([schoolId, assessmentId, pupilId], map: "assessment_results_assessment_pupil_key")
+  @@index([schoolId, pupilId, recordedAt(sort: Desc)], map: "assessment_results_pupil_time_idx")
+  @@map("assessment_results")
+}
+
+model AssessmentResultRevision {
+  id                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId           String           @map("school_id") @db.Uuid
+  resultId           String           @map("result_id") @db.Uuid
+  score              Decimal          @db.Decimal(8, 2)
+  gradeCode          String?          @map("grade_code") @db.VarChar(24)
+  comments           String?          @db.VarChar(1000)
+  source             String           @db.VarChar(24)
+  revision           Int
+  changedByUserId    String           @map("changed_by_user_id") @db.Uuid
+  changedAt          DateTime         @default(now()) @map("changed_at") @db.Timestamptz(6)
+  school             School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  result             AssessmentResult @relation(fields: [schoolId, resultId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  changedBy          User             @relation("AssessmentRevisionActor", fields: [changedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "assessment_result_revisions_school_id_key")
+  @@index([schoolId, resultId, revision], map: "assessment_result_revisions_result_idx")
+  @@map("assessment_result_revisions")
+}
+
+model PupilTarget {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId        String       @map("school_id") @db.Uuid
+  pupilId         String       @map("pupil_id") @db.Uuid
+  subjectId       String?      @map("subject_id") @db.Uuid
+  createdByUserId String       @map("created_by_user_id") @db.Uuid
+  title           String       @db.VarChar(160)
+  description     String       @db.Text
+  targetGrade     String?      @map("target_grade") @db.VarChar(24)
+  status          String       @default("active") @db.VarChar(16)
+  startsOn        DateTime     @map("starts_on") @db.Date
+  endsOn          DateTime?    @map("ends_on") @db.Date
+  school          School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil           PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  subject         Subject?     @relation(fields: [schoolId, subjectId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       User         @relation("PupilTargetCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "pupil_targets_school_id_key")
+  @@index([schoolId, pupilId, status, startsOn], map: "pupil_targets_pupil_status_idx")
+  @@map("pupil_targets")
+}
+
+model ExamSeries {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String         @map("school_id") @db.Uuid
+  academicYearId String?        @map("academic_year_id") @db.Uuid
+  createdByUserId String        @map("created_by_user_id") @db.Uuid
+  code           String         @db.VarChar(32)
+  name           String         @db.VarChar(160)
+  awardingBody   String         @map("awarding_body") @db.VarChar(80)
+  qualification String         @db.VarChar(80)
+  startsOn       DateTime       @map("starts_on") @db.Date
+  endsOn         DateTime       @map("ends_on") @db.Date
+  status         String         @default("planned") @db.VarChar(16)
+  school         School         @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  academicYear   AcademicYear?  @relation(fields: [schoolId, academicYearId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy      User           @relation("ExamSeriesCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sessions       ExamSession[]
+  candidates     ExamCandidate[]
+
+  @@unique([schoolId, id], map: "exam_series_school_id_key")
+  @@unique([schoolId, code], map: "exam_series_school_code_key")
+  @@index([schoolId, startsOn, status], map: "exam_series_school_date_idx")
+  @@map("exam_series")
+}
+
+model ExamSession {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId     String      @map("school_id") @db.Uuid
+  examSeriesId String      @map("exam_series_id") @db.Uuid
+  subjectId    String      @map("subject_id") @db.Uuid
+  startsAt     DateTime    @map("starts_at") @db.Timestamptz(6)
+  endsAt       DateTime    @map("ends_at") @db.Timestamptz(6)
+  venue        String?     @db.VarChar(120)
+  school       School      @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  examSeries   ExamSeries  @relation(fields: [schoolId, examSeriesId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  subject      Subject     @relation(fields: [schoolId, subjectId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "exam_sessions_school_id_key")
+  @@index([schoolId, examSeriesId, startsAt], map: "exam_sessions_series_time_idx")
+  @@map("exam_sessions")
+}
+
+model ExamCandidate {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String      @map("school_id") @db.Uuid
+  examSeriesId   String      @map("exam_series_id") @db.Uuid
+  pupilId        String      @map("pupil_id") @db.Uuid
+  subjectId      String      @map("subject_id") @db.Uuid
+  candidateNumber String     @map("candidate_number") @db.VarChar(32)
+  status         String      @default("entered") @db.VarChar(16)
+  enteredAt      DateTime    @default(now()) @map("entered_at") @db.Timestamptz(6)
+  school         School      @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  examSeries     ExamSeries  @relation(fields: [schoolId, examSeriesId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  pupil          PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  subject        Subject     @relation(fields: [schoolId, subjectId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  results        ExamResult[]
+
+  @@unique([schoolId, id], map: "exam_candidates_school_id_key")
+  @@unique([schoolId, examSeriesId, pupilId, subjectId], map: "exam_candidates_series_pupil_subject_key")
+  @@unique([schoolId, examSeriesId, candidateNumber], map: "exam_candidates_series_number_key")
+  @@index([schoolId, examSeriesId, subjectId], map: "exam_candidates_series_subject_idx")
+  @@map("exam_candidates")
+}
+
+model ExamResult {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId          String              @map("school_id") @db.Uuid
+  candidateId       String              @map("candidate_id") @db.Uuid
+  grade             String              @db.VarChar(24)
+  score             Decimal?            @db.Decimal(8, 2)
+  source            String              @db.VarChar(24)
+  enteredByUserId   String              @map("entered_by_user_id") @db.Uuid
+  recordedAt        DateTime            @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  revision          Int                 @default(1)
+  school            School              @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  candidate         ExamCandidate       @relation(fields: [schoolId, candidateId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  enteredBy         User                @relation("ExamResultAuthor", fields: [enteredByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  revisions         ExamResultRevision[]
+
+  @@unique([schoolId, id], map: "exam_results_school_id_key")
+  @@unique([schoolId, candidateId], map: "exam_results_candidate_key")
+  @@index([schoolId, candidateId, recordedAt(sort: Desc)], map: "exam_results_candidate_time_idx")
+  @@map("exam_results")
+}
+
+model ExamResultRevision {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId          String      @map("school_id") @db.Uuid
+  examResultId      String      @map("exam_result_id") @db.Uuid
+  grade             String      @db.VarChar(24)
+  score             Decimal?    @db.Decimal(8, 2)
+  source            String      @db.VarChar(24)
+  revision          Int
+  changedByUserId   String      @map("changed_by_user_id") @db.Uuid
+  changedAt         DateTime    @default(now()) @map("changed_at") @db.Timestamptz(6)
+  school            School      @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  examResult        ExamResult  @relation(fields: [schoolId, examResultId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  changedBy         User        @relation("ExamResultRevisionActor", fields: [changedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "exam_result_revisions_school_id_key")
+  @@index([schoolId, examResultId, revision], map: "exam_result_revisions_result_idx")
+  @@map("exam_result_revisions")
+}
+
+model Application {
+  id                  String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId            String                    @map("school_id") @db.Uuid
+  targetYearGroupId   String?                   @map("target_year_group_id") @db.Uuid
+  applicantUserId     String?                   @map("applicant_user_id") @db.Uuid
+  enrolledPupilId     String?                   @unique(map: "applications_enrolled_pupil_key") @map("enrolled_pupil_id") @db.Uuid
+  reference           String                    @db.VarChar(32)
+  applicantName       String                    @map("applicant_name") @db.VarChar(160)
+  applicantEmail      String                    @map("applicant_email") @db.VarChar(320)
+  applicantPhone      String                    @map("applicant_phone") @db.VarChar(32)
+  pupilFirstName      String                    @map("pupil_first_name") @db.VarChar(100)
+  pupilLastName       String                    @map("pupil_last_name") @db.VarChar(100)
+  pupilDateOfBirth    DateTime                  @map("pupil_date_of_birth") @db.Date
+  status              String                    @default("submitted") @db.VarChar(24)
+  submittedAt         DateTime                  @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  updatedAt           DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  school              School                    @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  targetYearGroup     YearGroup?                @relation(fields: [schoolId, targetYearGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  applicantUser       User?                     @relation("ApplicationSubmitter", fields: [applicantUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  enrolledPupil       PupilProfile?             @relation("ApplicationEnrolledPupil", fields: [schoolId, enrolledPupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  statusHistory       ApplicationStatusHistory[]
+  documents           ApplicationDocument[]
+  offers              Offer[]
+  handoff             EnrolmentHandoff?
+  invoices            Invoice[]
+
+  @@unique([schoolId, id], map: "applications_school_id_key")
+  @@unique([schoolId, reference], map: "applications_school_reference_key")
+  @@index([schoolId, status, submittedAt(sort: Desc)], map: "applications_status_time_idx")
+  @@index([schoolId, applicantUserId, submittedAt(sort: Desc)], map: "applications_applicant_idx")
+  @@map("applications")
+}
+
+model ApplicationStatusHistory {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId    String       @map("school_id") @db.Uuid
+  applicationId String     @map("application_id") @db.Uuid
+  fromStatus  String?      @map("from_status") @db.VarChar(24)
+  toStatus    String       @map("to_status") @db.VarChar(24)
+  note        String?      @db.VarChar(1000)
+  actorUserId String?      @map("actor_user_id") @db.Uuid
+  changedAt   DateTime     @default(now()) @map("changed_at") @db.Timestamptz(6)
+  school      School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  application Application @relation(fields: [schoolId, applicationId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  actor       User?        @relation("ApplicationHistoryActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "application_status_history_school_id_key")
+  @@index([schoolId, applicationId, changedAt(sort: Desc)], map: "application_status_history_app_time_idx")
+  @@map("application_status_history")
+}
+
+model ApplicationDocument {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String      @map("school_id") @db.Uuid
+  applicationId  String      @map("application_id") @db.Uuid
+  documentType   String      @map("document_type") @db.VarChar(40)
+  status         String      @default("requested") @db.VarChar(16)
+  fileName       String?     @map("file_name") @db.VarChar(240)
+  storageKey     String?     @map("storage_key") @db.VarChar(500)
+  requestedAt    DateTime    @default(now()) @map("requested_at") @db.Timestamptz(6)
+  receivedAt     DateTime?   @map("received_at") @db.Timestamptz(6)
+  requestedByUserId String?  @map("requested_by_user_id") @db.Uuid
+  school         School      @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  application    Application @relation(fields: [schoolId, applicationId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "application_documents_school_id_key")
+  @@index([schoolId, applicationId, status], map: "application_documents_app_status_idx")
+  @@map("application_documents")
+}
+
+model Offer {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId        String      @map("school_id") @db.Uuid
+  applicationId   String      @map("application_id") @db.Uuid
+  createdByUserId String      @map("created_by_user_id") @db.Uuid
+  status          String      @default("offered") @db.VarChar(16)
+  terms           String      @db.Text
+  offeredAt       DateTime    @default(now()) @map("offered_at") @db.Timestamptz(6)
+  expiresAt       DateTime?   @map("expires_at") @db.Timestamptz(6)
+  respondedAt     DateTime?   @map("responded_at") @db.Timestamptz(6)
+  school          School      @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  application     Application @relation(fields: [schoolId, applicationId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       User        @relation("OfferCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "offers_school_id_key")
+  @@index([schoolId, applicationId, offeredAt(sort: Desc)], map: "offers_application_time_idx")
+  @@map("offers")
+}
+
+model EnrolmentHandoff {
+  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId          String       @map("school_id") @db.Uuid
+  applicationId     String       @unique(map: "enrolment_handoffs_application_key") @map("application_id") @db.Uuid
+  pupilId           String       @unique(map: "enrolment_handoffs_pupil_key") @map("pupil_id") @db.Uuid
+  academicYearId    String       @map("academic_year_id") @db.Uuid
+  yearGroupId       String       @map("year_group_id") @db.Uuid
+  formId            String       @map("form_id") @db.Uuid
+  verifiedByUserId  String       @map("verified_by_user_id") @db.Uuid
+  verifiedAt        DateTime     @default(now()) @map("verified_at") @db.Timestamptz(6)
+  school            School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  application       Application  @relation(fields: [schoolId, applicationId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  pupil             PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  academicYear      AcademicYear @relation(fields: [schoolId, academicYearId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  yearGroup         YearGroup    @relation(fields: [schoolId, yearGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  form              Form         @relation(fields: [schoolId, yearGroupId, formId], references: [schoolId, yearGroupId, id], onDelete: Restrict, onUpdate: Cascade)
+  verifiedBy        User         @relation("HandoffVerifier", fields: [verifiedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "enrolment_handoffs_school_id_key")
+  @@unique([schoolId, applicationId], map: "enrolment_handoffs_school_application_key")
+  @@unique([schoolId, pupilId], map: "enrolment_handoffs_school_pupil_key")
+  @@map("enrolment_handoffs")
+}
+
+model Charge {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId        String        @map("school_id") @db.Uuid
+  pupilId         String?       @map("pupil_id") @db.Uuid
+  createdByUserId String        @map("created_by_user_id") @db.Uuid
+  code            String        @db.VarChar(32)
+  description     String        @db.VarChar(240)
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        @default("GBP") @db.VarChar(3)
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  school          School        @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil           PupilProfile? @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       User          @relation("ChargeCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoiceLines    InvoiceLine[]
+
+  @@unique([schoolId, id], map: "charges_school_id_key")
+  @@unique([schoolId, code], map: "charges_school_code_key")
+  @@index([schoolId, isActive], map: "charges_school_active_idx")
+  @@map("charges")
+}
+
+model Invoice {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId        String        @map("school_id") @db.Uuid
+  parentUserId    String        @map("parent_user_id") @db.Uuid
+  applicationId   String?       @map("application_id") @db.Uuid
+  createdByUserId String        @map("created_by_user_id") @db.Uuid
+  reference       String        @db.VarChar(32)
+  status          String        @default("draft") @db.VarChar(20)
+  currency        String        @default("GBP") @db.VarChar(3)
+  totalAmount     Decimal       @map("total_amount") @db.Decimal(10, 2)
+  dueAt           DateTime?     @map("due_at") @db.Date
+  issuedAt        DateTime?     @map("issued_at") @db.Timestamptz(6)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  school          School        @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  parent          User          @relation("InvoiceParent", fields: [parentUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  application     Application?  @relation(fields: [schoolId, applicationId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       User          @relation("InvoiceCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  lines           InvoiceLine[]
+  payments        Payment[]
+
+  @@unique([schoolId, id], map: "invoices_school_id_key")
+  @@unique([schoolId, reference], map: "invoices_school_reference_key")
+  @@index([schoolId, parentUserId, status, createdAt(sort: Desc)], map: "invoices_parent_status_idx")
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId    String   @map("school_id") @db.Uuid
+  invoiceId   String   @map("invoice_id") @db.Uuid
+  chargeId    String?  @map("charge_id") @db.Uuid
+  description String   @db.VarChar(240)
+  quantity    Int      @default(1)
+  unitAmount  Decimal  @map("unit_amount") @db.Decimal(10, 2)
+  lineAmount  Decimal  @map("line_amount") @db.Decimal(10, 2)
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoice     Invoice  @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  charge      Charge?  @relation(fields: [schoolId, chargeId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "invoice_lines_school_id_key")
+  @@index([schoolId, invoiceId], map: "invoice_lines_invoice_idx")
+  @@map("invoice_lines")
+}
+
+model Payment {
+  id                       String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId                 String                @map("school_id") @db.Uuid
+  invoiceId                String                @map("invoice_id") @db.Uuid
+  initiatedByUserId        String                @map("initiated_by_user_id") @db.Uuid
+  providerName             String                @map("provider_name") @db.VarChar(32)
+  providerReference        String?               @map("provider_reference") @db.VarChar(160)
+  providerIntentReference  String?               @map("provider_intent_reference") @db.VarChar(160)
+  idempotencyKey           String                @map("idempotency_key") @db.VarChar(160)
+  amount                   Decimal               @db.Decimal(10, 2)
+  currency                 String                @db.VarChar(3)
+  status                   String                @default("pending") @db.VarChar(20)
+  createdAt                DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  school                   School                @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoice                  Invoice               @relation(fields: [schoolId, invoiceId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  initiatedBy              User                  @relation("PaymentInitiator", fields: [initiatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  refunds                  Refund[]
+  providerEvents           PaymentProviderEvent[]
+
+  @@unique([schoolId, id], map: "payments_school_id_key")
+  @@unique([schoolId, idempotencyKey], map: "payments_school_idempotency_key")
+  @@unique([providerName, providerReference], map: "payments_provider_reference_key")
+  @@index([schoolId, invoiceId, status], map: "payments_invoice_status_idx")
+  @@map("payments")
+}
+
+model Refund {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId        String    @map("school_id") @db.Uuid
+  paymentId       String    @map("payment_id") @db.Uuid
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  idempotencyKey  String    @map("idempotency_key") @db.VarChar(160)
+  amount          Decimal   @db.Decimal(10, 2)
+  reason          String    @db.VarChar(500)
+  status          String    @default("pending") @db.VarChar(16)
+  providerReference String? @map("provider_reference") @db.VarChar(160)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  school          School    @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  payment         Payment   @relation(fields: [schoolId, paymentId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       User      @relation("RefundCreator", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "refunds_school_id_key")
+  @@unique([schoolId, idempotencyKey], map: "refunds_school_idempotency_key")
+  @@index([schoolId, paymentId, createdAt(sort: Desc)], map: "refunds_payment_time_idx")
+  @@map("refunds")
+}
+
+model PaymentProviderEvent {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId           String    @map("school_id") @db.Uuid
+  paymentId          String?   @map("payment_id") @db.Uuid
+  providerName       String    @map("provider_name") @db.VarChar(32)
+  externalEventId    String    @map("external_event_id") @db.VarChar(160)
+  eventType          String    @map("event_type") @db.VarChar(120)
+  payloadHash        String    @map("payload_hash") @db.VarChar(64)
+  signatureVerified  Boolean   @default(false) @map("signature_verified")
+  receivedAt         DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt        DateTime? @map("processed_at") @db.Timestamptz(6)
+  school             School    @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  payment            Payment?  @relation(fields: [schoolId, paymentId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([providerName, externalEventId], map: "payment_provider_events_provider_event_key")
+  @@index([schoolId, receivedAt(sort: Desc)], map: "payment_provider_events_school_time_idx")
+  @@map("payment_provider_events")
+}
+
+model AttendanceCode {
+  schoolId        String             @map("school_id") @db.Uuid
+  code            String             @db.VarChar(4)
+  description     String             @db.VarChar(120)
+  markType        String             @map("mark_type") @db.VarChar(24)
+  countsAsPresent Boolean            @default(false) @map("counts_as_present")
+  school          School             @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  records         AttendanceRecord[]
+  revisions       AttendanceRecordRevision[]
+
+  @@id([schoolId, code])
+  @@map("attendance_codes")
+}
+
+model AttendanceSession {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String             @map("school_id") @db.Uuid
+  sessionDate    DateTime           @map("session_date") @db.Date
+  sessionType    String             @map("session_type") @db.VarChar(16)
+  sessionKey     String             @default("registration") @map("session_key") @db.VarChar(100)
+  classGroupId   String?            @map("class_group_id") @db.Uuid
+  lessonPeriod   String?            @map("lesson_period") @db.VarChar(32)
+  school         School             @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  classGroup     ClassGroup?        @relation(fields: [schoolId, classGroupId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  records        AttendanceRecord[]
+
+  @@unique([schoolId, id], map: "attendance_sessions_school_id_key")
+  @@unique([schoolId, sessionDate, sessionType, sessionKey], map: "attendance_sessions_school_date_type_key")
+  @@map("attendance_sessions")
+}
+
+model AttendanceRecord {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId            String            @map("school_id") @db.Uuid
+  attendanceSessionId String            @map("attendance_session_id") @db.Uuid
+  pupilId             String            @map("pupil_id") @db.Uuid
+  attendanceCode      String            @map("attendance_code") @db.VarChar(4)
+  reason              String?           @db.VarChar(200)
+  note                String?           @db.VarChar(1000)
+  authorizationStatus String            @default("not_required") @map("authorization_status") @db.VarChar(16)
+  markedByUserId      String?           @map("marked_by_user_id") @db.Uuid
+  markedAt            DateTime          @default(now()) @map("marked_at") @db.Timestamptz(6)
+  school              School            @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  session             AttendanceSession @relation(fields: [schoolId, attendanceSessionId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  pupil               PupilProfile      @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  code                AttendanceCode    @relation(fields: [schoolId, attendanceCode], references: [schoolId, code], onDelete: Restrict, onUpdate: Cascade)
+  markedBy            User?             @relation("AttendanceRecordMarker", fields: [markedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  notes               AttendanceNote[]
+  revisions           AttendanceRecordRevision[]
+
+  @@unique([schoolId, id], map: "attendance_records_school_id_key")
+  @@unique([schoolId, attendanceSessionId, pupilId], map: "attendance_records_school_session_pupil_key")
+  @@index([schoolId, pupilId, attendanceSessionId], map: "attendance_records_school_pupil_session_idx")
+  @@map("attendance_records")
+}
+
+model AttendanceNote {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId           String            @map("school_id") @db.Uuid
+  attendanceRecordId String            @map("attendance_record_id") @db.Uuid
+  authorUserId       String?           @map("author_user_id") @db.Uuid
+  body               String            @db.VarChar(1000)
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  school             School            @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attendanceRecord   AttendanceRecord  @relation(fields: [schoolId, attendanceRecordId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  author             User?             @relation(fields: [authorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([schoolId, attendanceRecordId, createdAt], map: "attendance_notes_record_idx")
+  @@map("attendance_notes")
+}
+
+model AttendanceRecordRevision {
+  id                   String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId             String            @map("school_id") @db.Uuid
+  attendanceRecordId   String            @map("attendance_record_id") @db.Uuid
+  attendanceCode       String            @map("attendance_code") @db.VarChar(4)
+  reason               String?           @db.VarChar(200)
+  note                 String?           @db.VarChar(1000)
+  authorizationStatus  String            @map("authorization_status") @db.VarChar(16)
+  changedByUserId      String?           @map("changed_by_user_id") @db.Uuid
+  changedAt            DateTime          @default(now()) @map("changed_at") @db.Timestamptz(6)
+  school               School            @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attendanceRecord     AttendanceRecord  @relation(fields: [schoolId, attendanceRecordId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  code                 AttendanceCode    @relation(fields: [schoolId, attendanceCode], references: [schoolId, code], onDelete: Restrict, onUpdate: Cascade)
+  changedBy            User?             @relation(fields: [changedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([schoolId, attendanceRecordId, changedAt(sort: Desc)], map: "attendance_revisions_record_idx")
+  @@map("attendance_record_revisions")
+}
+
+model AttendanceIntervention {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId        String       @map("school_id") @db.Uuid
+  pupilId         String       @map("pupil_id") @db.Uuid
+  startsOn        DateTime     @map("starts_on") @db.Date
+  endsOn          DateTime?    @map("ends_on") @db.Date
+  reason          String       @db.VarChar(240)
+  status          String       @default("open") @db.VarChar(16)
+  reviewNote      String?      @map("review_note") @db.VarChar(1000)
+  createdByUserId String?      @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  school          School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil           PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       User?        @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "attendance_interventions_school_id_key")
+  @@index([schoolId, pupilId, startsOn], map: "attendance_interventions_pupil_idx")
+  @@map("attendance_interventions")
+}
+
+model OutboxEvent {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String    @map("school_id") @db.Uuid
+  eventType      String    @map("event_type") @db.VarChar(120)
+  aggregateType  String    @map("aggregate_type") @db.VarChar(80)
+  aggregateId    String    @map("aggregate_id") @db.Uuid
+  idempotencyKey String    @map("idempotency_key") @db.VarChar(180)
+  payload        Json      @default("{}") @db.JsonB
+  occurredAt     DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  processedAt    DateTime? @map("processed_at") @db.Timestamptz(6)
+  attempts       Int       @default(0)
+  school         School    @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, idempotencyKey], map: "outbox_events_school_idempotency_key")
+  @@index([processedAt, occurredAt], map: "outbox_events_pending_idx")
+  @@map("outbox_events")
+}
+
+model SendProfile {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId     String       @map("school_id") @db.Uuid
+  pupilId      String       @map("pupil_id") @db.Uuid
+  status       String       @db.VarChar(24)
+  primaryNeed  String       @map("primary_need") @db.VarChar(64)
+  supportLevel String       @map("support_level") @db.VarChar(24)
+  reviewDue    DateTime?    @map("review_due") @db.Date
+  school       School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil        PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, pupilId], map: "send_profiles_school_pupil_key")
+  @@map("send_profiles")
+}
+
+model MedicalCondition {
+  id       String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId String                  @map("school_id") @db.Uuid
+  code     String                  @db.VarChar(32)
+  name     String                  @db.VarChar(120)
+  category String                  @db.VarChar(24)
+  school   School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupils   PupilMedicalCondition[]
+
+  @@unique([schoolId, id], map: "medical_conditions_school_id_key")
+  @@unique([schoolId, code], map: "medical_conditions_school_code_key")
+  @@map("medical_conditions")
+}
+
+model PupilMedicalCondition {
+  schoolId           String           @map("school_id") @db.Uuid
+  pupilId            String           @map("pupil_id") @db.Uuid
+  medicalConditionId String           @map("medical_condition_id") @db.Uuid
+  severity           String           @db.VarChar(24)
+  careNote           String           @map("care_note") @db.VarChar(240)
+  startsOn           DateTime         @default(dbgenerated("CURRENT_DATE")) @map("starts_on") @db.Date
+  endsOn             DateTime?        @map("ends_on") @db.Date
+  parentVisible      Boolean          @default(false) @map("parent_visible")
+  school             School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil              PupilProfile     @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  condition          MedicalCondition @relation(fields: [schoolId, medicalConditionId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([schoolId, pupilId, medicalConditionId])
+  @@map("pupil_medical_conditions")
+}
+
+model SupportPlan {
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId  String          @map("school_id") @db.Uuid
+  pupilId   String          @map("pupil_id") @db.Uuid
+  title     String          @db.VarChar(120)
+  summary   String          @db.Text
+  status    String          @default("active") @db.VarChar(16)
+  parentVisible Boolean     @default(false) @map("parent_visible")
+  startsOn  DateTime        @map("starts_on") @db.Date
+  endsOn    DateTime?       @map("ends_on") @db.Date
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  school    School          @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil     PupilProfile    @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  targets   SendTarget[]
+  interventions SendIntervention[]
+  provisions ProvisionRecord[]
+
+  @@unique([schoolId, id], map: "support_plans_school_id_key")
+  @@index([schoolId, pupilId, status, startsOn], map: "support_plans_pupil_status_idx")
+  @@map("support_plans")
+}
+
+model SendTarget {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId      String             @map("school_id") @db.Uuid
+  supportPlanId String             @map("support_plan_id") @db.Uuid
+  title         String             @db.VarChar(160)
+  description   String             @db.Text
+  successCriteria String           @map("success_criteria") @db.VarChar(500)
+  startsOn      DateTime           @map("starts_on") @db.Date
+  reviewDue     DateTime?          @map("review_due") @db.Date
+  status        String             @default("active") @db.VarChar(16)
+  parentVisible Boolean            @default(false) @map("parent_visible")
+  school        School             @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supportPlan   SupportPlan        @relation(fields: [schoolId, supportPlanId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  reviews       SendTargetReview[]
+
+  @@unique([schoolId, id], map: "send_targets_school_id_key")
+  @@index([schoolId, supportPlanId, status], map: "send_targets_plan_status_idx")
+  @@map("send_targets")
+}
+
+model SendTargetReview {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId   String     @map("school_id") @db.Uuid
+  targetId   String     @map("target_id") @db.Uuid
+  outcome    String     @db.VarChar(24)
+  note       String     @db.Text
+  reviewedAt DateTime   @default(now()) @map("reviewed_at") @db.Timestamptz(6)
+  school     School     @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  target     SendTarget @relation(fields: [schoolId, targetId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "send_target_reviews_school_id_key")
+  @@index([schoolId, targetId, reviewedAt(sort: Desc)], map: "send_target_reviews_target_time_idx")
+  @@map("send_target_reviews")
+}
+
+model SendIntervention {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId      String        @map("school_id") @db.Uuid
+  pupilId       String        @map("pupil_id") @db.Uuid
+  supportPlanId String?       @map("support_plan_id") @db.Uuid
+  interventionType String     @map("intervention_type") @db.VarChar(40)
+  description   String        @db.Text
+  startsOn      DateTime      @map("starts_on") @db.Date
+  endsOn        DateTime?     @map("ends_on") @db.Date
+  outcome       String?       @db.Text
+  school        School        @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil         PupilProfile  @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  supportPlan   SupportPlan?  @relation(fields: [schoolId, supportPlanId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "send_interventions_school_id_key")
+  @@index([schoolId, pupilId, startsOn], map: "send_interventions_pupil_idx")
+  @@map("send_interventions")
+}
+
+model ProvisionRecord {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId      String        @map("school_id") @db.Uuid
+  pupilId       String        @map("pupil_id") @db.Uuid
+  supportPlanId String?       @map("support_plan_id") @db.Uuid
+  provisionType String        @map("provision_type") @db.VarChar(40)
+  description   String        @db.Text
+  frequency     String        @db.VarChar(80)
+  startsOn      DateTime      @map("starts_on") @db.Date
+  endsOn        DateTime?     @map("ends_on") @db.Date
+  school        School        @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil         PupilProfile  @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  supportPlan   SupportPlan?  @relation(fields: [schoolId, supportPlanId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "provision_records_school_id_key")
+  @@index([schoolId, pupilId, startsOn], map: "provision_records_pupil_idx")
+  @@map("provision_records")
+}
+
+model Medication {
+  id        String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId  String                    @map("school_id") @db.Uuid
+  code      String                    @db.VarChar(32)
+  name      String                    @db.VarChar(120)
+  strength  String?                   @db.VarChar(80)
+  form      String?                   @db.VarChar(40)
+  school    School                    @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  authorizations MedicationAuthorization[]
+
+  @@unique([schoolId, id], map: "medications_school_id_key")
+  @@unique([schoolId, code], map: "medications_school_code_key")
+  @@map("medications")
+}
+
+model MedicationAuthorization {
+  id                    String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId              String                    @map("school_id") @db.Uuid
+  pupilId               String                    @map("pupil_id") @db.Uuid
+  medicationId          String                    @map("medication_id") @db.Uuid
+  guardianPersonId       String?                   @map("guardian_person_id") @db.Uuid
+  authorizedByUserId     String                    @map("authorized_by_user_id") @db.Uuid
+  dosageInstructions     String                    @map("dosage_instructions") @db.VarChar(500)
+  startsOn               DateTime                  @map("starts_on") @db.Date
+  endsOn                 DateTime?                 @map("ends_on") @db.Date
+  status                 String                    @default("active") @db.VarChar(16)
+  createdAt              DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  school                 School                    @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil                  PupilProfile              @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  medication             Medication                @relation(fields: [schoolId, medicationId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  guardian               ParentCarerProfile?       @relation(fields: [schoolId, guardianPersonId], references: [schoolId, personId], onDelete: Restrict, onUpdate: Cascade)
+  authorizedBy           User                      @relation("MedicationAuthorizationApprover", fields: [authorizedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  administrations        MedicationAdministration[]
+
+  @@unique([schoolId, id], map: "medication_authorizations_school_id_key")
+  @@index([schoolId, pupilId, status, startsOn], map: "medication_authorizations_pupil_status_idx")
+  @@map("medication_authorizations")
+}
+
+model MedicationAdministration {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId                 String                     @map("school_id") @db.Uuid
+  pupilId                  String                     @map("pupil_id") @db.Uuid
+  authorizationId          String                     @map("authorization_id") @db.Uuid
+  administeredByUserId     String                     @map("administered_by_user_id") @db.Uuid
+  administeredAt           DateTime                   @map("administered_at") @db.Timestamptz(6)
+  doseGiven                String                     @map("dose_given") @db.VarChar(120)
+  status                   String                     @db.VarChar(20)
+  note                     String?                    @db.VarChar(1000)
+  correctionOfId           String?                    @map("correction_of_id") @db.Uuid
+  correctionReason         String?                    @map("correction_reason") @db.VarChar(500)
+  recordedAt               DateTime                   @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  school                   School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil                    PupilProfile               @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  authorization            MedicationAuthorization    @relation(fields: [schoolId, authorizationId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  administeredBy           User                       @relation("MedicationAdministrationActor", fields: [administeredByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  corrects                 MedicationAdministration?  @relation("AdministrationCorrection", fields: [schoolId, correctionOfId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  corrections              MedicationAdministration[] @relation("AdministrationCorrection")
+
+  @@unique([schoolId, id], map: "medication_administrations_school_id_key")
+  @@index([schoolId, pupilId, administeredAt(sort: Desc)], map: "medication_administrations_pupil_time_idx")
+  @@map("medication_administrations")
+}
+
+model HealthcarePlan {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId         String       @map("school_id") @db.Uuid
+  pupilId          String       @map("pupil_id") @db.Uuid
+  title            String       @db.VarChar(120)
+  instructions     String       @db.Text
+  emergencyActions String       @map("emergency_actions") @db.Text
+  startsOn         DateTime     @map("starts_on") @db.Date
+  reviewDue        DateTime?    @map("review_due") @db.Date
+  status           String       @default("active") @db.VarChar(16)
+  school           School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil            PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "healthcare_plans_school_id_key")
+  @@index([schoolId, pupilId, status], map: "healthcare_plans_pupil_status_idx")
+  @@map("healthcare_plans")
+}
+
+model MedicalIncident {
+  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId          String       @map("school_id") @db.Uuid
+  pupilId           String       @map("pupil_id") @db.Uuid
+  incidentType      String       @map("incident_type") @db.VarChar(32)
+  details           String       @db.Text
+  actionTaken       String       @map("action_taken") @db.Text
+  followUpRequired  Boolean      @default(false) @map("follow_up_required")
+  occurredAt        DateTime     @map("occurred_at") @db.Timestamptz(6)
+  reportedByUserId  String       @map("reported_by_user_id") @db.Uuid
+  reportedAt        DateTime     @default(now()) @map("reported_at") @db.Timestamptz(6)
+  school            School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil             PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  reportedBy        User         @relation("MedicalIncidentReporter", fields: [reportedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "medical_incidents_school_id_key")
+  @@index([schoolId, pupilId, occurredAt(sort: Desc)], map: "medical_incidents_pupil_time_idx")
+  @@map("medical_incidents")
+}
+
+model BehaviourIncident {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId      String       @map("school_id") @db.Uuid
+  pupilId       String       @map("pupil_id") @db.Uuid
+  seedKey       String       @map("seed_key") @db.VarChar(80)
+  category      String       @db.VarChar(24)
+  title         String       @db.VarChar(120)
+  details       String       @db.VarChar(240)
+  points        Int          @default(0)
+  parentVisible Boolean      @default(false) @map("parent_visible")
+  occurredAt    DateTime     @map("occurred_at") @db.Timestamptz(6)
+  school        School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil         PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  sanctions     BehaviourSanction[]
+
+  @@unique([schoolId, id], map: "behaviour_incidents_school_id_key")
+  @@unique([schoolId, seedKey], map: "behaviour_incidents_school_seed_key")
+  @@index([schoolId, pupilId, occurredAt(sort: Desc)], map: "behaviour_incidents_school_pupil_time_idx")
+  @@map("behaviour_incidents")
+}
+
+model BehaviourReward {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId      String       @map("school_id") @db.Uuid
+  pupilId       String       @map("pupil_id") @db.Uuid
+  seedKey       String?      @map("seed_key") @db.VarChar(80)
+  category      String       @db.VarChar(24)
+  title         String       @db.VarChar(120)
+  details       String       @db.VarChar(240)
+  points        Int          @default(1)
+  parentVisible Boolean      @default(true) @map("parent_visible")
+  occurredAt    DateTime     @map("occurred_at") @db.Timestamptz(6)
+  school        School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil         PupilProfile @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "behaviour_rewards_school_id_key")
+  @@unique([schoolId, seedKey], map: "behaviour_rewards_school_seed_key")
+  @@index([schoolId, pupilId, occurredAt(sort: Desc)], map: "behaviour_rewards_school_pupil_time_idx")
+  @@map("behaviour_rewards")
+}
+
+model BehaviourSanction {
+  id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId      String            @map("school_id") @db.Uuid
+  pupilId       String            @map("pupil_id") @db.Uuid
+  incidentId    String            @map("incident_id") @db.Uuid
+  sanctionType  String            @map("sanction_type") @db.VarChar(32)
+  details       String?           @db.VarChar(500)
+  status        String            @default("assigned") @db.VarChar(16)
+  parentVisible Boolean           @default(false) @map("parent_visible")
+  dueAt         DateTime?         @map("due_at") @db.Timestamptz(6)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  school        School            @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil         PupilProfile      @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  incident      BehaviourIncident @relation(fields: [schoolId, incidentId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  detention     Detention?
+
+  @@unique([schoolId, id], map: "behaviour_sanctions_school_id_key")
+  @@index([schoolId, pupilId, createdAt(sort: Desc)], map: "behaviour_sanctions_school_pupil_time_idx")
+  @@map("behaviour_sanctions")
+}
+
+model Detention {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId    String            @map("school_id") @db.Uuid
+  sanctionId  String            @unique(map: "detentions_sanction_key") @map("sanction_id") @db.Uuid
+  pupilId     String            @map("pupil_id") @db.Uuid
+  scheduledAt DateTime          @map("scheduled_at") @db.Timestamptz(6)
+  status      String            @default("scheduled") @db.VarChar(16)
+  note        String?           @db.VarChar(500)
+  school      School            @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil       PupilProfile      @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  sanction    BehaviourSanction @relation(fields: [schoolId, sanctionId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "detentions_school_id_key")
+  @@unique([schoolId, sanctionId], map: "detentions_school_sanction_key")
+  @@index([schoolId, pupilId, scheduledAt], map: "detentions_school_pupil_schedule_idx")
+  @@map("detentions")
+}
+
+model SafeguardingCase {
+  id         String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId   String                 @map("school_id") @db.Uuid
+  pupilId    String                 @map("pupil_id") @db.Uuid
+  status     String                 @default("open") @db.VarChar(16)
+  openedAt   DateTime               @default(now()) @map("opened_at") @db.Timestamptz(6)
+  closedAt   DateTime?              @map("closed_at") @db.Timestamptz(6)
+  school     School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pupil      PupilProfile           @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  concerns   SafeguardingConcern[]
+  actions    SafeguardingAction[]
+  meetings   SafeguardingMeeting[]
+  access     SafeguardingCaseAccess[]
+
+  @@unique([schoolId, id], map: "safeguarding_cases_school_id_key")
+  @@index([schoolId, pupilId, openedAt(sort: Desc)], map: "safeguarding_cases_school_pupil_time_idx")
+  @@map("safeguarding_cases")
+}
+
+model SafeguardingConcern {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId       String           @map("school_id") @db.Uuid
+  caseId         String           @map("case_id") @db.Uuid
+  pupilId        String           @map("pupil_id") @db.Uuid
+  category       String           @db.VarChar(32)
+  details        String           @db.Text
+  occurredAt     DateTime?        @map("occurred_at") @db.Timestamptz(6)
+  reportedByUserId String         @map("reported_by_user_id") @db.Uuid
+  reportedAt     DateTime         @default(now()) @map("reported_at") @db.Timestamptz(6)
+  school         School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  safeguardingCase SafeguardingCase @relation(fields: [schoolId, caseId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  pupil          PupilProfile     @relation(fields: [schoolId, pupilId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  reportedBy     User             @relation(fields: [reportedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "safeguarding_concerns_school_id_key")
+  @@index([schoolId, caseId, reportedAt(sort: Desc)], map: "safeguarding_concerns_case_time_idx")
+  @@map("safeguarding_concerns")
+}
+
+model SafeguardingCaseAccess {
+  schoolId       String           @map("school_id") @db.Uuid
+  caseId         String           @map("case_id") @db.Uuid
+  userId         String           @map("user_id") @db.Uuid
+  grantedByUserId String          @map("granted_by_user_id") @db.Uuid
+  grantedAt      DateTime         @default(now()) @map("granted_at") @db.Timestamptz(6)
+  revokedAt      DateTime?        @map("revoked_at") @db.Timestamptz(6)
+  reason         String           @db.VarChar(240)
+  school         School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  safeguardingCase SafeguardingCase @relation(fields: [schoolId, caseId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  user           User             @relation("SafeguardingCaseGrantee", fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  grantedBy      User             @relation("SafeguardingCaseGrantor", fields: [grantedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([schoolId, caseId, userId])
+  @@index([schoolId, userId, revokedAt], map: "safeguarding_case_access_user_idx")
+  @@map("safeguarding_case_access")
+}
+
+model SafeguardingAction {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId    String           @map("school_id") @db.Uuid
+  caseId      String           @map("case_id") @db.Uuid
+  actionType  String           @map("action_type") @db.VarChar(32)
+  details     String           @db.Text
+  dueAt       DateTime?        @map("due_at") @db.Timestamptz(6)
+  completedAt DateTime?        @map("completed_at") @db.Timestamptz(6)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  school      School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  safeguardingCase SafeguardingCase @relation(fields: [schoolId, caseId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "safeguarding_actions_school_id_key")
+  @@index([schoolId, caseId, createdAt], map: "safeguarding_actions_case_time_idx")
+  @@map("safeguarding_actions")
+}
+
+model SafeguardingMeeting {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId    String           @map("school_id") @db.Uuid
+  caseId      String           @map("case_id") @db.Uuid
+  meetingType String           @map("meeting_type") @db.VarChar(32)
+  scheduledAt DateTime         @map("scheduled_at") @db.Timestamptz(6)
+  details     String?          @db.Text
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  school      School           @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  safeguardingCase SafeguardingCase @relation(fields: [schoolId, caseId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([schoolId, id], map: "safeguarding_meetings_school_id_key")
+  @@index([schoolId, caseId, scheduledAt], map: "safeguarding_meetings_case_schedule_idx")
+  @@map("safeguarding_meetings")
+}

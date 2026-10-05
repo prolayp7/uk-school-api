@@ -3,6 +3,7 @@
 /node_modules
 /build
 /tmp
+/docs
 
 # Logs
 logs
@@ -18,7 +19,14 @@ lerna-debug.log*
 .env.development
 .env.test
 .env.production
+.env.migration
+.env.migration.example
 
 # temp directory
 .temp
 .tmp
+
+
+# markdown files
+*.md
+!README.md
