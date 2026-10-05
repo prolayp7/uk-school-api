@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Headers, Param, UseGuards } from "@nestjs/common";
 import { AuthGuard, SchoolAccessGuard } from "../auth/auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { ErpService } from "./erp.service";
@@ -18,12 +18,10 @@ export class ErpController {
 
   @Get("student/summary")
   @UseGuards(AuthGuard)
-  async studentSummary(@CurrentUser() user: ErpCurrentUser) {
-    const schoolId = user.schoolIds?.[0];
-    if (!schoolId) {
-      return null;
-    }
-
+  async studentSummary(
+    @CurrentUser() user: ErpCurrentUser,
+    @Headers("x-school-id") schoolId?: string,
+  ) {
     return this.erpService.getStudentSummary(user.id, schoolId);
   }
 
@@ -58,10 +56,10 @@ export class ErpController {
   @UseGuards(AuthGuard, SchoolAccessGuard)
   schoolSummary(
     @CurrentUser() user: ErpCurrentUser,
-    @Query("schoolId") _schoolId?: string,
+    @Param("schoolId") schoolId: string,
   ) {
     return {
-      school: user.schools.find((school) => school.id === _schoolId) ?? null,
+      school: user.schools.find((school) => school.id === schoolId) ?? null,
       roles: user.roleCodes,
       permissions: user.permissions,
     };
@@ -75,7 +73,18 @@ export class ErpController {
       return { total: 0, items: [] };
     }
 
-    return this.erpService.listPupils(schoolId);
+    return this.erpService.listPupils(schoolId, user.id);
+  }
+
+  @Get("pupils/count")
+  @UseGuards(AuthGuard)
+  async pupilCount(@CurrentUser() user: ErpCurrentUser) {
+    const schoolId = user.schoolIds?.[0];
+    if (!schoolId) {
+      return { total: 0 };
+    }
+
+    return this.erpService.getPupilCount(schoolId, user.id);
   }
 
   @Get("academic-structure")
@@ -86,6 +95,6 @@ export class ErpController {
       return { currentAcademicYear: null, yearGroups: [], forms: [], houses: [], subjects: [] };
     }
 
-    return this.erpService.getAcademicStructure(schoolId);
+    return this.erpService.getAcademicStructure(schoolId, user.id);
   }
 }

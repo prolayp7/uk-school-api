@@ -96,4 +96,8 @@ export class AttendanceReportQueryDto {
   @IsOptional()
   @IsDateString({ strict: true })
   date?: string;
+
+  @IsOptional()
+  @IsUUID()
+  classGroupId?: string;
 }

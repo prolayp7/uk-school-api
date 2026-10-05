@@ -43,7 +43,12 @@ export class AttendanceController {
 
   @Get("erp/attendance/codes")
   codes(@CurrentUser() user: AuthenticatedUser, @Headers("x-school-id") schoolId?: string) {
-    return this.attendanceService.listCodes(resolveSchoolId(user, schoolId));
+    return this.attendanceService.listCodes(resolveSchoolId(user, schoolId), user.id);
+  }
+
+  @Get("erp/attendance/class-groups")
+  classGroups(@CurrentUser() user: AuthenticatedUser, @Headers("x-school-id") schoolId?: string) {
+    return this.attendanceService.listClassGroups(resolveSchoolId(user, schoolId), user.id);
   }
 
   @Post("erp/attendance/sessions")
@@ -52,7 +57,7 @@ export class AttendanceController {
     @Headers("x-school-id") schoolId: string | undefined,
     @Body() body: CreateAttendanceSessionDto,
   ) {
-    return this.attendanceService.createSession(resolveSchoolId(user, schoolId), body);
+    return this.attendanceService.createSession(resolveSchoolId(user, schoolId), user.id, body);
   }
 
   @Get("erp/attendance/sessions")
@@ -61,7 +66,16 @@ export class AttendanceController {
     @Headers("x-school-id") schoolId: string | undefined,
     @Query() query: AttendanceSessionsQueryDto,
   ) {
-    return this.attendanceService.listSessions(resolveSchoolId(user, schoolId), query);
+    return this.attendanceService.listSessions(resolveSchoolId(user, schoolId), user.id, query);
+  }
+
+  @Get("erp/attendance/sessions/:sessionId/register")
+  register(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Param("sessionId") sessionId: string,
+  ) {
+    return this.attendanceService.getSessionRegister(resolveSchoolId(user, schoolId), user.id, sessionId);
   }
 
   @Put("erp/attendance/sessions/:sessionId/records")
@@ -85,7 +99,7 @@ export class AttendanceController {
     @Headers("x-school-id") schoolId: string | undefined,
     @Param("pupilId") pupilId: string,
   ) {
-    return this.attendanceService.getPupilAttendance(resolveSchoolId(user, schoolId), pupilId);
+    return this.attendanceService.getPupilAttendance(resolveSchoolId(user, schoolId), user.id, pupilId);
   }
 
   @Post("erp/pupils/:pupilId/attendance/interventions")
@@ -109,7 +123,16 @@ export class AttendanceController {
     @Headers("x-school-id") schoolId: string | undefined,
     @Query() query: AttendanceReportQueryDto,
   ) {
-    return this.attendanceService.getReport(resolveSchoolId(user, schoolId), query);
+    return this.attendanceService.getReport(resolveSchoolId(user, schoolId), user.id, query);
+  }
+
+  @Get("erp/attendance/teacher-summary")
+  teacherSummary(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Query() query: AttendanceReportQueryDto,
+  ) {
+    return this.attendanceService.getTeacherSummary(resolveSchoolId(user, schoolId), user.id, query);
   }
 }
 
@@ -121,5 +144,16 @@ export class ParentAttendanceController {
   @Get(":pupilId/attendance")
   attendance(@CurrentUser() user: AuthenticatedUser, @Param("pupilId") pupilId: string) {
     return this.attendanceService.getParentPupilAttendance(user.id, pupilId);
+  }
+}
+
+@Controller("student")
+@UseGuards(AuthGuard)
+export class StudentAttendanceController {
+  constructor(private readonly attendanceService: AttendanceService) {}
+
+  @Get("attendance")
+  attendance(@CurrentUser() user: AuthenticatedUser) {
+    return this.attendanceService.getStudentAttendance(user.id);
   }
 }

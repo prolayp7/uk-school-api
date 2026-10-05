@@ -32,6 +32,14 @@ The server listens on `PORT` (default `3000`). OpenAPI is available at
 `/api/v1/docs`; liveness and readiness checks are at
 `/api/v1/health/live` and `/api/v1/health/ready`.
 
+## Attendance and access control
+
+Attendance routes are school-scoped and authorize against active role assignments. Leadership, administration, and attendance officers can manage school registers; teachers are restricted to assigned lesson classes. Parent attendance reads require an active portal-enabled pupil contact, and student reads resolve only the pupil profile linked to that account. Parent/student payloads omit staff notes, absence reasons, and authorization status.
+
+The attendance API supports date-based sessions, bulk register marks, school reports by day/week/month, year-group and form breakdowns, academic-year persistent absence, class-scoped teacher summaries, parent/student attendance reads, and audited intervention creation. Absence/lateness changes enqueue durable outbox events; external email/SMS dispatch requires a separately configured delivery worker.
+
+Sensitive module access boundaries and the complete sprint acceptance status are recorded in `docs/sprint.md`.
+
 ## Checks
 
 ```sh

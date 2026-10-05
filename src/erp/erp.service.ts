@@ -1,5 +1,16 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+
+const SCHOOL_STRUCTURE_ROLES = [
+  "SUPER_ADMIN", "HEADTEACHER", "SLT", "ADMIN", "TEACHER", "DSL", "DEPUTY_DSL",
+  "SAFEGUARDING", "SENCO", "DEPUTY_SENCO", "FINANCE", "MEDICAL", "ATTENDANCE_OFFICER",
+  "ADMISSIONS_OFFICER", "EXAMS_OFFICER", "SUPPORT_STAFF", "STUDENT",
+];
+const PUPIL_DIRECTORY_ROLES = ["SUPER_ADMIN", "HEADTEACHER", "SLT", "ADMIN"];
+const PUPIL_SUMMARY_ROLES = [
+  "SUPER_ADMIN", "HEADTEACHER", "SLT", "ADMIN", "DSL", "DEPUTY_DSL", "SENCO", "DEPUTY_SENCO",
+  "MEDICAL", "ATTENDANCE_OFFICER", "ADMISSIONS_OFFICER", "EXAMS_OFFICER", "SUPPORT_STAFF",
+];
 
 @Injectable()
 export class ErpService {
@@ -21,9 +32,22 @@ export class ErpService {
     };
   }
 
-  async getStudentSummary(userId: string, schoolId: string) {
+  async getStudentSummary(userId: string, requestedSchoolId?: string) {
+    const memberships = await this.prisma.schoolMembership.findMany({
+      where: {
+        userId,
+        status: "active",
+        ...(requestedSchoolId ? { schoolId: requestedSchoolId } : {}),
+        membershipRoles: { some: { role: { code: "STUDENT" } } },
+      },
+      select: { schoolId: true },
+    });
+    const schoolIds = memberships.map(({ schoolId }) => schoolId);
+    if (schoolIds.length === 0) {
+      throw new ForbiddenException("Student membership is required to access this record.");
+    }
     const person = await this.prisma.person.findFirst({
-      where: { schoolId, userId },
+      where: { schoolId: { in: schoolIds }, userId },
       select: {
         id: true,
         legalFirstName: true,
@@ -77,9 +101,22 @@ export class ErpService {
   async listParentChildren(userId: string) {
     const today = new Date().toISOString().slice(0, 10);
     const todayDate = new Date(`${today}T00:00:00.000Z`);
+    const memberships = await this.prisma.schoolMembership.findMany({
+      where: {
+        userId,
+        status: "active",
+        membershipRoles: { some: { role: { code: "PARENT" } } },
+      },
+      select: { schoolId: true },
+    });
+    const schoolIds = memberships.map(({ schoolId }) => schoolId);
+    if (schoolIds.length === 0) {
+      throw new ForbiddenException("Parent membership is required to access linked children.");
+    }
 
     const contacts = await this.prisma.pupilContact.findMany({
       where: {
+        schoolId: { in: schoolIds },
         canViewPortal: true,
         guardian: { person: { userId } },
         startsOn: { lte: todayDate },
@@ -133,7 +170,8 @@ export class ErpService {
     });
   }
 
-  async listPupils(schoolId: string) {
+  async listPupils(schoolId: string, userId: string) {
+    await this.requireSchoolRole(schoolId, userId, PUPIL_DIRECTORY_ROLES);
     const rows = await this.prisma.person.findMany({
       where: {
         schoolId,
@@ -169,7 +207,13 @@ export class ErpService {
     };
   }
 
-  async getAcademicStructure(schoolId: string) {
+  async getPupilCount(schoolId: string, userId: string) {
+    await this.requireSchoolRole(schoolId, userId, PUPIL_SUMMARY_ROLES);
+    return { total: await this.prisma.pupilProfile.count({ where: { schoolId } }) };
+  }
+
+  async getAcademicStructure(schoolId: string, userId: string) {
+    await this.requireSchoolRole(schoolId, userId, SCHOOL_STRUCTURE_ROLES);
     const [currentAcademicYear, yearGroups, forms, houses, subjects] = await Promise.all([
       this.prisma.academicYear.findFirst({
         where: { schoolId, isCurrent: true },
@@ -218,5 +262,20 @@ export class ErpService {
         departmentId: subject.departmentId,
       })),
     };
+  }
+
+  private async requireSchoolRole(schoolId: string, userId: string, allowedRoles: string[]) {
+    const membership = await this.prisma.schoolMembership.findFirst({
+      where: {
+        schoolId,
+        userId,
+        status: "active",
+        membershipRoles: { some: { role: { code: { in: allowedRoles } } } },
+      },
+      select: { id: true },
+    });
+    if (!membership) {
+      throw new ForbiddenException("This operation is not permitted for your school role.");
+    }
   }
 }
