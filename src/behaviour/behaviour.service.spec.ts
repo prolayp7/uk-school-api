@@ -64,4 +64,35 @@ describe("BehaviourService", () => {
     }));
     expect(JSON.stringify(outboxCreate.mock.calls)).not.toContain("Internal details stay");
   });
+
+  it("builds a school behaviour summary for the management dashboard", async () => {
+    const service = new BehaviourService({
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({ id: "staff-membership" }) },
+      behaviourIncident: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: "incident-1", category: "minor", title: "Disruption", points: -1, occurredAt: new Date("2026-10-01T09:00:00Z"), pupilId: "pupil-1" },
+          { id: "incident-2", category: "disruption", title: "Persistent talking", points: -3, occurredAt: new Date("2026-10-03T09:00:00Z"), pupilId: "pupil-2" },
+        ]),
+      },
+      behaviourReward: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: "reward-1", category: "merit", title: "Helpful support", points: 2, occurredAt: new Date("2026-10-04T09:00:00Z"), pupilId: "pupil-3" },
+        ]),
+      },
+      behaviourSanction: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: "sanction-1", sanctionType: "detention", status: "assigned", parentVisible: true, dueAt: new Date("2026-10-08T09:00:00Z") },
+        ]),
+      },
+      auditEvent: { create: jest.fn().mockResolvedValue({}) },
+    } as unknown as PrismaService);
+
+    const summary = await service.getSchoolBehaviourSummary("school-1", "teacher-1");
+
+    expect(summary.totalIncidents).toBe(2);
+    expect(summary.totalRewards).toBe(1);
+    expect(summary.activeSanctions).toBe(1);
+    expect(summary.recentIncidents[0].category).toBe("minor");
+    expect(summary.categoryBreakdown[0].category).toBe("minor");
+  });
 });

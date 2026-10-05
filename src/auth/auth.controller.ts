@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Post,
   Req,
   Res,
@@ -31,6 +32,15 @@ class ForgotPasswordDto {
 class ResetPasswordDto {
   @IsString()
   token!: string;
+
+  @IsString()
+  @MinLength(8)
+  password!: string;
+}
+
+class AdminUpdatePasswordDto {
+  @IsEmail()
+  email!: string;
 
   @IsString()
   @MinLength(8)
@@ -120,5 +130,19 @@ export class AuthController {
       success: reset,
       status: reset ? "updated" : "invalid_or_expired",
     };
+  }
+
+  @Post("password/admin")
+  @UseGuards(AuthGuard)
+  async adminUpdatePassword(
+    @Body() body: AdminUpdatePasswordDto,
+    @CurrentUser() actor: { roleCodes: string[] },
+  ) {
+    if (!actor.roleCodes.includes("SUPER_ADMIN")) {
+      throw new ForbiddenException("Super administrator access is required.");
+    }
+
+    await this.authService.updatePasswordForEmail(body.email, body.password);
+    return { success: true, status: "updated" };
   }
 }

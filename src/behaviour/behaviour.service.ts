@@ -237,6 +237,102 @@ export class BehaviourService {
     return { incidents, rewards, sanctions };
   }
 
+  async getSchoolBehaviourSummary(schoolId: string, userId: string) {
+    await this.requireStaffMember(schoolId, userId);
+    const windowStart = new Date();
+    windowStart.setUTCDate(windowStart.getUTCDate() - 30);
+
+    const [incidents, rewards, sanctions] = await Promise.all([
+      this.prisma.behaviourIncident.findMany({
+        where: { schoolId, occurredAt: { gte: windowStart } },
+        orderBy: { occurredAt: "desc" },
+        select: {
+          id: true,
+          category: true,
+          title: true,
+          details: true,
+          points: true,
+          occurredAt: true,
+          parentVisible: true,
+          pupilId: true,
+        },
+      }),
+      this.prisma.behaviourReward.findMany({
+        where: { schoolId, occurredAt: { gte: windowStart } },
+        orderBy: { occurredAt: "desc" },
+        select: {
+          id: true,
+          category: true,
+          title: true,
+          points: true,
+          occurredAt: true,
+          pupilId: true,
+        },
+      }),
+      this.prisma.behaviourSanction.findMany({
+        where: { schoolId, status: { in: ["assigned", "pending", "in_progress", "open"] } },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          sanctionType: true,
+          status: true,
+          dueAt: true,
+          parentVisible: true,
+          pupilId: true,
+        },
+      }),
+    ]);
+
+    const categoryCounts = incidents.reduce<Record<string, number>>((accumulator, item) => {
+      accumulator[item.category] = (accumulator[item.category] ?? 0) + 1;
+      return accumulator;
+    }, {});
+
+    const recentIncidents = incidents.slice(0, 6).map((incident) => ({
+      id: incident.id,
+      category: incident.category,
+      title: incident.title,
+      points: incident.points,
+      occurredAt: incident.occurredAt,
+      parentVisible: incident.parentVisible,
+      pupilId: incident.pupilId,
+    }));
+
+    const categoryBreakdown = Object.entries(categoryCounts)
+      .map(([category, count]) => ({ category, count }))
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 5);
+
+    const summary = {
+      periodLabel: "Last 30 days",
+      totalIncidents: incidents.length,
+      totalRewards: rewards.length,
+      activeSanctions: sanctions.length,
+      detentionCount: sanctions.filter((sanction) => sanction.sanctionType === "detention").length,
+      totalPoints: incidents.reduce((total, incident) => total + incident.points, 0),
+      categoryBreakdown,
+      recentIncidents,
+    };
+
+    await this.prisma.auditEvent.create({
+      data: {
+        schoolId,
+        actorUserId: userId,
+        action: "behaviour.summary.viewed",
+        entityType: "behaviour_summary",
+        entityId: schoolId,
+        metadata: {
+          totalIncidents: summary.totalIncidents,
+          totalRewards: summary.totalRewards,
+          activeSanctions: summary.activeSanctions,
+          period: summary.periodLabel,
+        },
+      },
+    });
+
+    return summary;
+  }
+
   private async requireStaffMember(schoolId: string, userId: string): Promise<void> {
     const membership = await this.prisma.schoolMembership.findFirst({
       where: {

@@ -87,6 +87,17 @@ export class BehaviourController {
       pupilId,
     );
   }
+
+  @Get("erp/behaviour/reports/summary")
+  behaviourSummary(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+  ) {
+    return this.behaviourService.getSchoolBehaviourSummary(
+      resolveSchoolId(user, schoolId),
+      user.id,
+    );
+  }
 }
 
 @Controller("erp/safeguarding")

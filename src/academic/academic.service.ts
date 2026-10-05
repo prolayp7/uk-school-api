@@ -70,6 +70,97 @@ export class AcademicService {
     return { items: classes, total: classes.length };
   }
 
+  async getParentPupilTimetable(userId: string, pupilId: string) {
+    const today = dateOnly(new Date().toISOString());
+    const contact = await this.prisma.pupilContact.findFirst({
+      where: {
+        pupilId,
+        canViewPortal: true,
+        startsOn: { lte: today },
+        OR: [{ endsOn: null }, { endsOn: { gte: today } }],
+        guardian: { person: { userId } },
+      },
+      select: { schoolId: true },
+    });
+    if (!contact) {
+      throw new ForbiddenException("You do not have portal access to this pupil's timetable.");
+    }
+
+    const roles = await this.getRoleCodes(contact.schoolId, userId);
+    if (!roles.includes("PARENT")) {
+      await this.auditDenied(contact.schoolId, userId, "academic.parent_timetable.access_denied", pupilId);
+      throw new ForbiddenException("Parent membership is required to access this timetable.");
+    }
+
+    const items = await this.getCurrentPupilTimetable(contact.schoolId, pupilId, today);
+    await this.auditRead(contact.schoolId, userId, pupilId, "academic.parent_timetable.viewed", { slotCount: items.length });
+    return { pupilId, items };
+  }
+
+  async getStudentTimetable(userId: string) {
+    const memberships = await this.prisma.schoolMembership.findMany({
+      where: {
+        userId,
+        status: "active",
+        membershipRoles: { some: { role: { code: "STUDENT" } } },
+      },
+      select: { schoolId: true },
+    });
+    const schoolIds = memberships.map(({ schoolId }) => schoolId);
+    if (schoolIds.length === 0) {
+      throw new ForbiddenException("Student membership is required to access a timetable.");
+    }
+
+    const pupil = await this.prisma.pupilProfile.findFirst({
+      where: { schoolId: { in: schoolIds }, person: { userId } },
+      select: { id: true, schoolId: true },
+    });
+    if (!pupil) return { pupilId: null, items: [] };
+
+    const today = dateOnly(new Date().toISOString());
+    const items = await this.getCurrentPupilTimetable(pupil.schoolId, pupil.id, today);
+    await this.auditRead(pupil.schoolId, userId, pupil.id, "academic.student_timetable.viewed", { slotCount: items.length });
+    return { pupilId: pupil.id, items };
+  }
+
+  private async getCurrentPupilTimetable(schoolId: string, pupilId: string, today: Date) {
+    const slots = await this.prisma.timetableSlot.findMany({
+      where: {
+        schoolId,
+        effectiveFrom: { lte: today },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }],
+        classGroup: {
+          academicYear: { isCurrent: true },
+          memberships: { some: { pupilId } },
+        },
+      },
+      orderBy: [{ dayOfWeek: "asc" }, { startsAt: "asc" }],
+      select: {
+        dayOfWeek: true,
+        startsAt: true,
+        endsAt: true,
+        room: true,
+        classGroup: {
+          select: {
+            code: true,
+            yearGroup: { select: { code: true } },
+            subject: { select: { code: true, name: true } },
+          },
+        },
+      },
+    });
+
+    return slots.map((slot) => ({
+      dayOfWeek: slot.dayOfWeek,
+      startsAt: slot.startsAt.toISOString().slice(11, 16),
+      endsAt: slot.endsAt.toISOString().slice(11, 16),
+      room: slot.room,
+      classCode: slot.classGroup.code,
+      yearGroup: slot.classGroup.yearGroup.code,
+      subject: slot.classGroup.subject,
+    }));
+  }
+
   async listCurriculumPlans(schoolId: string, userId: string, academicYearId?: string) {
     const roles = await this.getRoleCodes(schoolId, userId);
     if (!roles.some((role) => [...CURRICULUM_MANAGER_ROLES, "TEACHER"].includes(role))) {

@@ -38,6 +38,8 @@ Attendance routes are school-scoped and authorize against active role assignment
 
 The attendance API supports date-based sessions, bulk register marks, school reports by day/week/month, year-group and form breakdowns, academic-year persistent absence, class-scoped teacher summaries, parent/student attendance reads, and audited intervention creation. Absence/lateness changes enqueue durable outbox events; external email/SMS dispatch requires a separately configured delivery worker.
 
+Parent and student timetable reads are available through `/parent/children/:pupilId/timetable` and `/student/timetable`. They return current-year, date-effective slots from the pupil's linked class memberships; parent requests require an active portal-enabled child link and student requests resolve only the signed-in user's pupil profile. This marks the completed parent/student portal foundation for Sprint 3.
+
 Sensitive module access boundaries and the complete sprint acceptance status are recorded in `docs/sprint.md`.
 
 ## Checks

@@ -175,3 +175,25 @@ export class AcademicController {
     return this.academicService.getExamResults(resolveSchoolId(user, schoolId), user.id, seriesId);
   }
 }
+
+@Controller("parent/children")
+@UseGuards(AuthGuard)
+export class ParentAcademicController {
+  constructor(private readonly academicService: AcademicService) {}
+
+  @Get(":pupilId/timetable")
+  timetable(@CurrentUser() user: AuthenticatedUser, @Param("pupilId", ParseUUIDPipe) pupilId: string) {
+    return this.academicService.getParentPupilTimetable(user.id, pupilId);
+  }
+}
+
+@Controller("student")
+@UseGuards(AuthGuard)
+export class StudentAcademicController {
+  constructor(private readonly academicService: AcademicService) {}
+
+  @Get("timetable")
+  timetable(@CurrentUser() user: AuthenticatedUser) {
+    return this.academicService.getStudentTimetable(user.id);
+  }
+}

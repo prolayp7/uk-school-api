@@ -100,4 +100,40 @@ describe("AuthService", () => {
     expect(reset).toBe(true);
     expect(createHash("sha256").update(token).digest("hex")).toBeTruthy();
   });
+
+  it("hashes admin-updated passwords and invalidates existing sessions", async () => {
+    const user = {
+      id: "user-1",
+      emailNormalized: "head@example.test",
+      passwordHash: `scrypt$development-seed$${scryptSync(
+        "ChangeMe123!",
+        "development-seed",
+        64,
+      ).toString("hex")}`,
+      status: "active",
+    };
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(user),
+        update: jest.fn().mockImplementation(({ data }) =>
+          Promise.resolve({ ...user, ...data }),
+        ),
+      },
+      schoolMembership: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    } as unknown as PrismaService;
+
+    const service = new AuthService(prisma);
+    const session = await service.createSession({
+      email: "head@example.test",
+      password: "ChangeMe123!",
+    });
+
+    await service.updatePasswordForEmail(" HEAD@EXAMPLE.TEST ", "NewPass123!");
+
+    const update = (prisma.user.update as jest.Mock).mock.calls[0][0];
+    expect(service.verifyPassword(update.data.passwordHash, "NewPass123!")).toBe(true);
+    expect(service.resolveSession(session.token)).toBeNull();
+  });
 });

@@ -292,4 +292,32 @@ export class AuthService {
     this.resetTokenStore.delete(token);
     return true;
   }
+
+  async updatePasswordForEmail(email: string, password: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { emailNormalized: this.normalizeEmail(email) },
+      select: { id: true, status: true },
+    });
+
+    if (!user || user.status !== "active") {
+      throw new NotFoundException("No active portal account was found for this contact.");
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: this.hashPassword(password) },
+    });
+
+    for (const [token, session] of this.sessionStore) {
+      if (session.userId === user.id) {
+        this.sessionStore.delete(token);
+      }
+    }
+
+    for (const [token, reset] of this.resetTokenStore) {
+      if (reset.userId === user.id) {
+        this.resetTokenStore.delete(token);
+      }
+    }
+  }
 }

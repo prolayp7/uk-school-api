@@ -31,6 +31,66 @@ export class ErpController {
     return this.erpService.listParentChildren(user.id);
   }
 
+  @Get("parent/children/:pupilId/homework")
+  @UseGuards(AuthGuard)
+  async parentHomework(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilHomework(user.id, pupilId);
+  }
+
+  @Get("parent/children/:pupilId/notices")
+  @UseGuards(AuthGuard)
+  async parentNotices(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilNotices(user.id, pupilId);
+  }
+
+  @Get("parent/children/:pupilId/messages")
+  @UseGuards(AuthGuard)
+  async parentMessages(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilMessages(user.id, pupilId);
+  }
+
+  @Get("parent/children/:pupilId/calendar")
+  @UseGuards(AuthGuard)
+  async parentSchoolEvents(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilSchoolEvents(user.id, pupilId);
+  }
+
+  @Get("parent/children/:pupilId/achievements")
+  @UseGuards(AuthGuard)
+  async parentAchievements(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilAchievements(user.id, pupilId);
+  }
+
+  @Get("parent/children/:pupilId/behaviour-summary")
+  @UseGuards(AuthGuard)
+  async parentBehaviourSummary(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilBehaviourSummary(user.id, pupilId);
+  }
+
+  @Get("parent/children/:pupilId/consents")
+  @UseGuards(AuthGuard)
+  async parentConsents(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilConsents(user.id, pupilId);
+  }
+
+  @Get("parent/children/:pupilId/forms")
+  @UseGuards(AuthGuard)
+  async parentForms(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilForms(user.id, pupilId);
+  }
+
+  @Get("parent/children/:pupilId/trips")
+  @UseGuards(AuthGuard)
+  async parentTrips(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilTrips(user.id, pupilId);
+  }
+
+  @Get("parent/children/:pupilId/contact-summary")
+  @UseGuards(AuthGuard)
+  async parentContactSummary(@CurrentUser() user: ErpCurrentUser, @Param("pupilId") pupilId: string) {
+    return this.erpService.getParentPupilContactSummary(user.id, pupilId);
+  }
+
   @Get("me")
   @UseGuards(AuthGuard)
   me(@CurrentUser() user: ErpCurrentUser) {
