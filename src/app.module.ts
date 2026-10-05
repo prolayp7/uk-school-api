@@ -10,6 +10,7 @@ import { ErpModule } from "./erp/erp.module";
 import { HealthModule } from "./health/health.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SupportModule } from "./support/support.module";
+import { ParentsModule } from "./parents/parents.module";
 
 function validateEnvironment(
   config: Record<string, unknown>,
@@ -71,6 +72,7 @@ function validateEnvironment(
     BehaviourModule,
     SupportModule,
     MedicalModule,
+    ParentsModule,
     ErpModule,
     HealthModule,
   ],

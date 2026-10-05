@@ -327,19 +327,25 @@ model StaffProfile {
 }
 
 model ParentCarerProfile {
-  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  schoolId  String         @map("school_id") @db.Uuid
-  personId  String         @map("person_id") @db.Uuid
-  email     String         @db.VarChar(320)
-  phone     String         @db.VarChar(32)
-  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  school    School         @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  person    Person         @relation(fields: [schoolId, personId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  id                  String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId            String         @map("school_id") @db.Uuid
+  personId            String         @map("person_id") @db.Uuid
+  externalId          String?        @map("external_id") @db.VarChar(80)
+  title               String?        @db.VarChar(32)
+  email               String         @db.VarChar(320)
+  phone               String         @db.VarChar(32)
+  landline            String?        @db.VarChar(32)
+  residentialAddress  String?        @map("residential_address") @db.VarChar(500)
+  photoStoragePath    String?        @map("photo_storage_path") @db.VarChar(500)
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  school              School         @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  person              Person         @relation(fields: [schoolId, personId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
   pupils    PupilContact[]
   medicationAuthorizations MedicationAuthorization[]
 
   @@unique([schoolId, id], map: "parent_carer_profiles_school_id_key")
   @@unique([schoolId, personId], map: "parent_carer_profiles_school_person_key")
+  @@unique([schoolId, externalId], map: "parent_carer_profiles_school_external_id_key")
   @@map("parent_carer_profiles")
 }
 

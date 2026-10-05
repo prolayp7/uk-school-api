@@ -9,6 +9,10 @@ const SEED_SALT = "uk-school-erp-development-seed-20260930";
 const DEVELOPMENT_PASSWORD = "ChangeMe123!";
 const ACADEMIC_YEAR = "2026/2027";
 const SEED_DATE = new Date("2026-09-30T12:00:00.000Z");
+const PARENT_CONTACT_EXTERNAL_IDS = [
+  "sarah-turner", "mark-turner", "priya-kapoor", "marcus-sinclair", "tariq-al-mansoor",
+  "claire-robinson", "julia-green", "gillian-vance", "helen-turner", "david-kapoor",
+];
 
 const firstNames = [
   "Aisha", "Amelia", "Arthur", "Ben", "Chloe", "Daniel", "Daisy", "Elliot",
@@ -471,6 +475,15 @@ async function createPeopleAndProfiles(schoolId: string, academicYearId: string,
     })),
     (batch) => prisma.parentCarerProfile.createMany({ data: batch, skipDuplicates: true }),
   );
+  await Promise.all(PARENT_CONTACT_EXTERNAL_IDS.map((externalId, index) =>
+    prisma.parentCarerProfile.updateMany({
+      where: {
+        schoolId,
+        personId: personIdBySeedKey.get(`parent:${parentNumber(index)}`)!,
+      },
+      data: { externalId },
+    }),
+  ));
 
   const pupilSpecs = Array.from({ length: 300 }, (_, index) => {
     const groupIndex = yearGroupSpecs.findIndex((group, currentIndex) =>

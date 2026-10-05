@@ -23,6 +23,11 @@ Requirements: Node.js 22+, pnpm 9+, and PostgreSQL 15+.
 5. Start the API with `pnpm start:dev`. Keep `.env.migration` out of source
 	control and never use its owner connection to run the API.
 
+Set `FILE_STORAGE_DIR` to an absolute directory outside the application
+repositories. The API creates feature subdirectories (including `parents/`)
+as needed and can use `tmp/` for temporary uploads. Files are stored outside
+the source tree; do not point this setting at a project directory.
+
 Stripe payment checkout and webhook processing are disabled until both
 `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are set in `.env`. Configure
 the Stripe webhook for `/api/v1/integrations/payments/stripe/webhook`; the
