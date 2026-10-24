@@ -67,11 +67,32 @@ export class AuthController {
   @Post("sessions")
   async createSession(
     @Body() body: CreateSessionDto,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
+  ) {
+    return this.issueSession(body, request, response);
+  }
+
+  @Post("website-sessions")
+  async createWebsiteAdminSession(
+    @Body() body: CreateSessionDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return this.issueSession(body, request, response, "SUPER_ADMIN");
+  }
+
+  private async issueSession(
+    body: CreateSessionDto,
+    request: Request,
+    response: Response,
+    requiredRoleCode?: "SUPER_ADMIN",
   ) {
     const session = await this.authService.createSession({
       email: body.email,
       password: body.password,
+      clientAddress: request.socket.remoteAddress ?? "unknown",
+      ...(requiredRoleCode ? { requiredRoleCode } : {}),
     });
 
     response.cookie("session_token", session.token, {
@@ -90,7 +111,7 @@ export class AuthController {
 
   @Delete("sessions/current")
   @UseGuards(AuthGuard)
-  revokeCurrentSession(
+  async revokeCurrentSession(
     @Req() request: Request,
     @CurrentUser() user: { id: string },
     @Res({ passthrough: true }) response: Response,
@@ -100,7 +121,7 @@ export class AuthController {
       throw new UnauthorizedException("Authentication required.");
     }
 
-    const revoked = this.authService.revokeSession(token);
+    const revoked = await this.authService.revokeSession(token);
     response.clearCookie("session_token", { path: "/" });
 
     return {
@@ -111,11 +132,13 @@ export class AuthController {
   }
 
   @Post("password/forgot")
-  async forgotPassword(@Body() body: ForgotPasswordDto) {
-    const token = await this.authService.requestPasswordReset(body.email);
+  async forgotPassword(@Body() body: ForgotPasswordDto, @Req() request: Request) {
+    await this.authService.requestPasswordReset(
+      body.email,
+      request.socket.remoteAddress ?? "unknown",
+    );
     return {
-      token,
-      message: "If the account exists, a password reset token has been issued.",
+      message: "If the account exists, password reset instructions have been sent.",
     };
   }
 

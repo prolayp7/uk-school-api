@@ -18,6 +18,7 @@ import {
   CreateMedicalIncidentDto,
   CreateMedicationAdministrationDto,
   CreateMedicationAuthorizationDto,
+  CreateMedicationScheduleDto,
   CreateMedicationDto,
 } from "../support/support.dto";
 import { MedicalService } from "./medical.service";
@@ -37,6 +38,30 @@ function resolveSchoolId(user: AuthenticatedUser, requestedSchoolId?: string): s
 @UseGuards(AuthGuard, SchoolAccessGuard)
 export class MedicalController {
   constructor(private readonly medicalService: MedicalService) {}
+
+  @Get("erp/medical/overview")
+  getOverview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+  ) {
+    return this.medicalService.getOverview(resolveSchoolId(user, schoolId), user.id);
+  }
+
+  @Get("erp/medical/conditions")
+  getConditionCatalog(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+  ) {
+    return this.medicalService.getConditionCatalog(resolveSchoolId(user, schoolId), user.id);
+  }
+
+  @Get("erp/medical/medications")
+  getMedicationCatalog(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+  ) {
+    return this.medicalService.getMedicationCatalog(resolveSchoolId(user, schoolId), user.id);
+  }
 
   @Get("erp/pupils/:pupilId/medical")
   getPupilMedical(
@@ -88,6 +113,21 @@ export class MedicalController {
     @Body() body: CreateMedicationAuthorizationDto,
   ) {
     return this.medicalService.createMedicationAuthorization(
+      resolveSchoolId(user, schoolId),
+      user.id,
+      pupilId,
+      body,
+    );
+  }
+
+  @Post("erp/pupils/:pupilId/medical/medication-schedules")
+  createMedicationSchedule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Param("pupilId", ParseUUIDPipe) pupilId: string,
+    @Body() body: CreateMedicationScheduleDto,
+  ) {
+    return this.medicalService.createMedicationSchedule(
       resolveSchoolId(user, schoolId),
       user.id,
       pupilId,

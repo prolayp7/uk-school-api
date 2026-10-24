@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
@@ -23,6 +24,8 @@ import {
   CreatePupilTargetDto,
   CreateSchemeOfWorkDto,
   CreateTimetableSlotDto,
+  TimetableQueryDto,
+  UpdateTimetableSlotDto,
   UpsertAssessmentResultsDto,
   UpsertExamResultsDto,
 } from "./academic.dto";
@@ -51,6 +54,15 @@ export class AcademicController {
     @Query() query: AcademicQueryDto,
   ) {
     return this.academicService.listClasses(resolveSchoolId(user, schoolId), user.id, query.academicYearId);
+  }
+
+  @Get("classes/:classGroupId/pupils")
+  listClassPupils(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Param("classGroupId", ParseUUIDPipe) classGroupId: string,
+  ) {
+    return this.academicService.listClassPupils(resolveSchoolId(user, schoolId), user.id, classGroupId);
   }
 
   @Get("curriculum/plans")
@@ -90,6 +102,42 @@ export class AcademicController {
     return this.academicService.createTimetableSlot(resolveSchoolId(user, schoolId), user.id, body);
   }
 
+  @Get("timetable/options")
+  timetableOptions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+  ) {
+    return this.academicService.getTimetableOptions(resolveSchoolId(user, schoolId), user.id);
+  }
+
+  @Get("timetable/slots")
+  listTimetableSlots(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Query() query: TimetableQueryDto,
+  ) {
+    return this.academicService.listTimetableSlots(resolveSchoolId(user, schoolId), user.id, query);
+  }
+
+  @Put("timetable/slots/:slotId")
+  updateTimetableSlot(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Param("slotId", ParseUUIDPipe) slotId: string,
+    @Body() body: UpdateTimetableSlotDto,
+  ) {
+    return this.academicService.updateTimetableSlot(resolveSchoolId(user, schoolId), user.id, slotId, body);
+  }
+
+  @Delete("timetable/slots/:slotId")
+  deleteTimetableSlot(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Param("slotId", ParseUUIDPipe) slotId: string,
+  ) {
+    return this.academicService.deleteTimetableSlot(resolveSchoolId(user, schoolId), user.id, slotId);
+  }
+
   @Post("grade-scales")
   createGradeScale(
     @CurrentUser() user: AuthenticatedUser,
@@ -99,6 +147,14 @@ export class AcademicController {
     return this.academicService.createGradeScale(resolveSchoolId(user, schoolId), user.id, body);
   }
 
+  @Get("grade-scales")
+  listGradeScales(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+  ) {
+    return this.academicService.listGradeScales(resolveSchoolId(user, schoolId), user.id);
+  }
+
   @Post("assessments")
   createAssessment(
     @CurrentUser() user: AuthenticatedUser,
@@ -106,6 +162,15 @@ export class AcademicController {
     @Body() body: CreateAssessmentDto,
   ) {
     return this.academicService.createAssessment(resolveSchoolId(user, schoolId), user.id, body);
+  }
+
+  @Get("assessments")
+  listAssessments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Query() query: AcademicQueryDto,
+  ) {
+    return this.academicService.listAssessments(resolveSchoolId(user, schoolId), user.id, query.academicYearId);
   }
 
   @Put("assessments/:assessmentId/results")
@@ -146,6 +211,15 @@ export class AcademicController {
     return this.academicService.createExamSeries(resolveSchoolId(user, schoolId), user.id, body);
   }
 
+  @Get("exam-series")
+  listExamSeries(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Query() query: AcademicQueryDto,
+  ) {
+    return this.academicService.listExamSeries(resolveSchoolId(user, schoolId), user.id, query.academicYearId);
+  }
+
   @Post("exam-series/:seriesId/candidates")
   addExamCandidates(
     @CurrentUser() user: AuthenticatedUser,
@@ -154,6 +228,15 @@ export class AcademicController {
     @Body() body: CreateExamCandidatesDto,
   ) {
     return this.academicService.addExamCandidates(resolveSchoolId(user, schoolId), user.id, seriesId, body);
+  }
+
+  @Get("exam-series/:seriesId/candidates")
+  listExamCandidates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Param("seriesId", ParseUUIDPipe) seriesId: string,
+  ) {
+    return this.academicService.listExamCandidates(resolveSchoolId(user, schoolId), user.id, seriesId);
   }
 
   @Put("exam-series/:seriesId/results")

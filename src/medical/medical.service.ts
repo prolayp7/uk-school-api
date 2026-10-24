@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { requireAnySchoolPermission } from "../auth/school-permissions";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   AddPupilMedicalConditionDto,
@@ -13,12 +14,44 @@ import {
   CreateMedicationAdministrationDto,
   CreateMedicationAuthorizationDto,
   CreateMedicationDto,
+  CreateMedicationScheduleDto,
 } from "../support/support.dto";
-
-const MEDICAL_ROLE_CODES = ["MEDICAL", "HEADTEACHER"];
 
 function dateOnly(value: string): Date {
   return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+}
+
+function getSchoolDateTime(at: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const fields = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  const weekdays: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+  const weekday = weekdays[fields.weekday ?? ""];
+  if (!weekday) throw new BadRequestException("School timezone could not be resolved.");
+  return {
+    date: `${fields.year}-${fields.month}-${fields.day}`,
+    weekday,
+    time: `${fields.hour}:${fields.minute}`,
+  };
+}
+
+function localDateTimeToUtc(date: string, time: string, timezone: string): Date {
+  const target = Date.parse(`${date}T${time}:00.000Z`);
+  let guess = target;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const actual = getSchoolDateTime(new Date(guess), timezone);
+    const actualAsUtc = Date.parse(`${actual.date}T${actual.time}:00.000Z`);
+    guess += target - actualAsUtc;
+  }
+  return new Date(guess);
 }
 
 function validateDateRange(startsOn: string, endsOn?: string): void {
@@ -31,10 +64,331 @@ function validateDateRange(startsOn: string, endsOn?: string): void {
 export class MedicalService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async getOverview(schoolId: string, userId: string) {
+    await this.requireMedicalRole(schoolId, userId);
+    const now = new Date();
+    const school = await this.prisma.school.findFirst({
+      where: { id: schoolId },
+      select: { timezone: true },
+    });
+    if (!school) throw new NotFoundException("School not found.");
+    const localNow = getSchoolDateTime(now, school.timezone);
+    const today = dateOnly(localNow.date);
+    const todayText = localNow.date;
+    const tomorrowText = new Date(today.getTime() + 86400000).toISOString().slice(0, 10);
+    const startOfSchoolDay = localDateTimeToUtc(todayText, "00:00", school.timezone);
+    const startOfNextSchoolDay = localDateTimeToUtc(tomorrowText, "00:00", school.timezone);
+    const reviewCutoff = new Date(today.getTime() + 30 * 86400000);
+    const pupils = await this.prisma.pupilProfile.findMany({
+      where: { schoolId, status: "enrolled" },
+      orderBy: [{ person: { lastName: "asc" } }, { person: { legalFirstName: "asc" } }],
+      select: {
+        id: true,
+        admissionNumber: true,
+        person: { select: { legalFirstName: true, preferredName: true, lastName: true } },
+        enrolments: {
+          where: { status: "active" },
+          orderBy: { startsOn: "desc" },
+          take: 1,
+          select: { yearGroup: { select: { name: true } }, form: { select: { code: true } } },
+        },
+        medicalConditions: {
+          where: {
+            startsOn: { lte: today },
+            OR: [{ endsOn: null }, { endsOn: { gte: today } }],
+          },
+          select: { severity: true, condition: { select: { code: true, name: true, category: true } } },
+        },
+        medicationAuthorizations: {
+          where: {
+            status: "active",
+            startsOn: { lte: today },
+            OR: [{ endsOn: null }, { endsOn: { gte: today } }],
+          },
+          select: {
+            id: true,
+            medication: { select: { name: true, strength: true, form: true } },
+          },
+        },
+        healthcarePlans: {
+          where: { status: "active" },
+          select: { id: true, title: true, reviewDue: true },
+        },
+        medicalIncidents: {
+          select: { id: true, incidentType: true, occurredAt: true, followUpRequired: true },
+        },
+      },
+    });
+    const [administrationsToday, recentAdministrations] = await Promise.all([
+      this.prisma.medicationAdministration.count({
+        where: { schoolId, administeredAt: { gte: startOfSchoolDay, lt: startOfNextSchoolDay } },
+      }),
+      this.prisma.medicationAdministration.findMany({
+        where: { schoolId },
+        orderBy: { administeredAt: "desc" },
+        take: 20,
+        select: {
+          id: true,
+          administeredAt: true,
+          doseGiven: true,
+          status: true,
+          authorization: { select: { medication: { select: { name: true } } } },
+          pupil: {
+            select: {
+              id: true,
+              admissionNumber: true,
+              person: { select: { legalFirstName: true, preferredName: true, lastName: true } },
+            },
+          },
+          administeredBy: { select: { emailNormalized: true } },
+        },
+      }),
+    ]);
+    const schedules = await this.prisma.medicationSchedule.findMany({
+      where: {
+        schoolId,
+        status: "active",
+        startsOn: { lte: today },
+        OR: [{ endsOn: null }, { endsOn: { gte: today } }],
+        authorization: {
+          is: {
+            status: "active",
+            startsOn: { lte: today },
+            OR: [{ endsOn: null }, { endsOn: { gte: today } }],
+          },
+        },
+      },
+      orderBy: [{ scheduledTime: "asc" }, { pupil: { person: { lastName: "asc" } } }],
+      select: {
+        id: true,
+        pupilId: true,
+        authorizationId: true,
+        daysOfWeek: true,
+        scheduledTime: true,
+        doseInstructions: true,
+        authorization: {
+          select: {
+            status: true,
+            startsOn: true,
+            endsOn: true,
+            medication: { select: { name: true } },
+          },
+        },
+        pupil: {
+          select: {
+            id: true,
+            admissionNumber: true,
+            person: { select: { legalFirstName: true, preferredName: true, lastName: true } },
+            enrolments: {
+              where: { status: "active" },
+              orderBy: { startsOn: "desc" },
+              take: 1,
+              select: { yearGroup: { select: { name: true } }, form: { select: { code: true } } },
+            },
+          },
+        },
+      },
+    });
+    const possibleScheduledAdministrations = await this.prisma.medicationAdministration.findMany({
+      where: {
+        schoolId,
+        scheduleId: { not: null },
+        administeredAt: {
+          gte: startOfSchoolDay,
+          lt: startOfNextSchoolDay,
+        },
+      },
+      orderBy: { recordedAt: "desc" },
+      select: { id: true, scheduleId: true, administeredAt: true, status: true },
+    });
+    const scheduledAdministrationsById = new Map<string, (typeof possibleScheduledAdministrations)[number]>();
+    for (const administration of possibleScheduledAdministrations) {
+      if (
+        administration.scheduleId &&
+        getSchoolDateTime(administration.administeredAt, school.timezone).date === todayText &&
+        !scheduledAdministrationsById.has(administration.scheduleId)
+      ) {
+        scheduledAdministrationsById.set(administration.scheduleId, administration);
+      }
+    }
+    const medicationQueue = schedules
+      .filter((schedule) => schedule.daysOfWeek.includes(localNow.weekday))
+      .map((schedule) => {
+        const administration = scheduledAdministrationsById.get(schedule.id);
+        const status = administration
+          ? administration.status
+          : schedule.scheduledTime < localNow.time
+            ? "overdue"
+            : "pending";
+        return {
+          id: schedule.id,
+          pupilId: schedule.pupil.id,
+          pupilName: [
+            schedule.pupil.person.preferredName ?? schedule.pupil.person.legalFirstName,
+            schedule.pupil.person.lastName,
+          ].join(" "),
+          admissionNumber: schedule.pupil.admissionNumber,
+          yearGroup: schedule.pupil.enrolments[0]?.yearGroup.name ?? "Unplaced",
+          form: schedule.pupil.enrolments[0]?.form.code ?? "",
+          medication: schedule.authorization.medication.name,
+          authorizationId: schedule.authorizationId,
+          authorizationValid: true,
+          doseInstructions: schedule.doseInstructions,
+          scheduledTime: schedule.scheduledTime,
+          status,
+          administrationId: administration?.id ?? null,
+        };
+      });
+    const reviewDueCount = pupils.reduce(
+      (count, pupil) =>
+        count +
+        pupil.healthcarePlans.filter(
+          (plan) => plan.reviewDue && plan.reviewDue <= reviewCutoff,
+        ).length,
+      0,
+    );
+    const followUpCount = pupils.reduce(
+      (count, pupil) => count + pupil.medicalIncidents.filter((incident) => incident.followUpRequired).length,
+      0,
+    );
+    const overview = {
+      pupils: pupils.map((pupil) => ({
+        id: pupil.id,
+        name: [pupil.person.preferredName ?? pupil.person.legalFirstName, pupil.person.lastName].join(" "),
+        admissionNumber: pupil.admissionNumber,
+        yearGroup: pupil.enrolments[0]?.yearGroup.name ?? "Unplaced",
+        form: pupil.enrolments[0]?.form.code ?? "",
+        conditions: pupil.medicalConditions,
+        authorizations: pupil.medicationAuthorizations,
+        healthcarePlans: pupil.healthcarePlans,
+        followUpIncidents: pupil.medicalIncidents.filter((incident) => incident.followUpRequired),
+      })),
+      metrics: {
+        pupilsWithMedicalRecords: pupils.filter(
+          (pupil) =>
+            pupil.medicalConditions.length > 0 ||
+            pupil.medicationAuthorizations.length > 0 ||
+            pupil.healthcarePlans.length > 0 ||
+            pupil.medicalIncidents.length > 0,
+        ).length,
+        activeAlerts: pupils.reduce((count, pupil) => count + pupil.medicalConditions.length, 0),
+        activeAuthorizations: pupils.reduce((count, pupil) => count + pupil.medicationAuthorizations.length, 0),
+        administrationsToday,
+        medicationDueToday: medicationQueue.length,
+        medicationGivenToday: medicationQueue.filter((item) => item.status === "administered").length,
+        medicationPendingToday: medicationQueue.filter((item) => item.status === "pending").length,
+        medicationOverdueToday: medicationQueue.filter((item) => item.status === "overdue").length,
+        plansDueForReview: reviewDueCount,
+        incidentsNeedingFollowUp: followUpCount,
+      },
+      medicationQueue,
+      recentAdministrations: recentAdministrations.map((administration) => ({
+        id: administration.id,
+        pupilId: administration.pupil.id,
+        pupilName: [
+          administration.pupil.person.preferredName ?? administration.pupil.person.legalFirstName,
+          administration.pupil.person.lastName,
+        ].join(" "),
+        admissionNumber: administration.pupil.admissionNumber,
+        medication: administration.authorization.medication.name,
+        administeredAt: administration.administeredAt,
+        doseGiven: administration.doseGiven,
+        status: administration.status,
+        recordedBy: administration.administeredBy.emailNormalized,
+      })),
+    };
+    await this.auditRead(schoolId, userId, null, "medical.overview.viewed", {
+      pupilCount: overview.pupils.length,
+      ...overview.metrics,
+    });
+    return overview;
+  }
+
+  async getConditionCatalog(schoolId: string, userId: string) {
+    await this.requireMedicalRole(schoolId, userId);
+    return this.prisma.medicalCondition.findMany({
+      where: { schoolId },
+      orderBy: [{ category: "asc" }, { name: "asc" }],
+      select: { id: true, code: true, name: true, category: true },
+    });
+  }
+
+  async getMedicationCatalog(schoolId: string, userId: string) {
+    await this.requireMedicalRole(schoolId, userId);
+    return this.prisma.medication.findMany({
+      where: { schoolId },
+      orderBy: { name: "asc" },
+      select: { id: true, code: true, name: true, strength: true, form: true },
+    });
+  }
+
   async getPupilMedical(schoolId: string, userId: string, pupilId: string) {
     await this.requireMedicalRole(schoolId, userId);
     await this.requirePupil(schoolId, pupilId);
-    const [conditions, authorizations, administrations, healthcarePlans, incidents] = await Promise.all([
+    const [pupil, conditions, authorizations, administrations, schedules, healthcarePlans, incidents] = await Promise.all([
+      this.prisma.pupilProfile.findFirst({
+        where: { schoolId, id: pupilId },
+        select: {
+          id: true,
+          admissionNumber: true,
+          upn: true,
+          person: {
+            select: {
+              legalFirstName: true,
+              preferredName: true,
+              lastName: true,
+              dateOfBirth: true,
+            },
+          },
+          enrolments: {
+            where: { status: "active" },
+            orderBy: { startsOn: "desc" },
+            take: 1,
+            select: {
+              yearGroup: { select: { name: true } },
+              form: {
+                select: {
+                  code: true,
+                  tutor: {
+                    select: {
+                      person: {
+                        select: {
+                          legalFirstName: true,
+                          preferredName: true,
+                          lastName: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              house: { select: { name: true } },
+            },
+          },
+          contacts: {
+            where: {
+              startsOn: { lte: dateOnly(new Date().toISOString()) },
+              OR: [{ endsOn: null }, { endsOn: { gte: dateOnly(new Date().toISOString()) } }],
+            },
+            orderBy: { isPrimary: "desc" },
+            select: {
+              relationship: true,
+              isPrimary: true,
+              canCollect: true,
+              hasParentalResponsibility: true,
+              canViewPortal: true,
+              guardianPersonId: true,
+              guardian: {
+                select: {
+                  phone: true,
+                  landline: true,
+                  person: { select: { legalFirstName: true, preferredName: true, lastName: true } },
+                },
+              },
+            },
+          },
+        },
+      }),
       this.prisma.pupilMedicalCondition.findMany({
         where: {
           schoolId,
@@ -62,7 +416,12 @@ export class MedicalService {
           endsOn: true,
           status: true,
           guardianPersonId: true,
-          medication: { select: { code: true, name: true, strength: true, form: true } },
+          guardian: {
+            select: {
+              person: { select: { legalFirstName: true, preferredName: true, lastName: true } },
+            },
+          },
+          medication: { select: { id: true, code: true, name: true, strength: true, form: true } },
         },
       }),
       this.prisma.medicationAdministration.findMany({
@@ -76,8 +435,26 @@ export class MedicalService {
           status: true,
           note: true,
           correctionOfId: true,
+          scheduleId: true,
           correctionReason: true,
           recordedAt: true,
+          authorization: { select: { medication: { select: { name: true } } } },
+          administeredBy: { select: { emailNormalized: true } },
+        },
+      }),
+      this.prisma.medicationSchedule.findMany({
+        where: { schoolId, pupilId },
+        orderBy: [{ startsOn: "desc" }, { scheduledTime: "asc" }],
+        select: {
+          id: true,
+          authorizationId: true,
+          doseInstructions: true,
+          scheduledTime: true,
+          daysOfWeek: true,
+          startsOn: true,
+          endsOn: true,
+          status: true,
+          authorization: { select: { medication: { select: { name: true } } } },
         },
       }),
       this.prisma.healthcarePlan.findMany({
@@ -96,7 +473,74 @@ export class MedicalService {
       incidentCount: incidents.length,
       healthcarePlanCount: healthcarePlans.length,
     });
-    return { conditions, authorizations, administrations, healthcarePlans, incidents };
+    const auditEvents = await this.prisma.auditEvent.findMany({
+      where: {
+        schoolId,
+        OR: [
+          { entityType: "medical_record", entityId: pupilId },
+          { entityType: "pupil_medical_condition", entityId: pupilId },
+          ...["medication_authorization", "medication_schedule", "healthcare_plan", "medical_incident"].map((entityType) => ({
+            entityType,
+            metadata: { path: ["pupilId"], equals: pupilId },
+          })),
+        ],
+      },
+      orderBy: { occurredAt: "desc" },
+      take: 8,
+      select: {
+        id: true,
+        action: true,
+        occurredAt: true,
+        actor: { select: { emailNormalized: true } },
+      },
+    });
+    return {
+      pupil: pupil
+        ? {
+            id: pupil.id,
+            name: [pupil.person.preferredName ?? pupil.person.legalFirstName, pupil.person.lastName].join(" "),
+            dateOfBirth: pupil.person.dateOfBirth,
+            upn: pupil.upn,
+            admissionNumber: pupil.admissionNumber,
+            yearGroup: pupil.enrolments[0]?.yearGroup.name ?? "Unplaced",
+            form: pupil.enrolments[0]?.form.code ?? "",
+            tutor: pupil.enrolments[0]?.form.tutor
+              ? [
+                  pupil.enrolments[0].form.tutor.person.preferredName ??
+                    pupil.enrolments[0].form.tutor.person.legalFirstName,
+                  pupil.enrolments[0].form.tutor.person.lastName,
+                ].join(" ")
+              : null,
+            house: pupil.enrolments[0]?.house?.name ?? null,
+            contacts: pupil.contacts.map((contact) => ({
+              guardianPersonId: contact.guardianPersonId,
+              name: [
+                contact.guardian.person.preferredName ?? contact.guardian.person.legalFirstName,
+                contact.guardian.person.lastName,
+              ].join(" "),
+              phone: contact.guardian.phone,
+              landline: contact.guardian.landline,
+              relationship: contact.relationship,
+              isPrimary: contact.isPrimary,
+              canCollect: contact.canCollect,
+              hasParentalResponsibility: contact.hasParentalResponsibility,
+              canViewPortal: contact.canViewPortal,
+            })),
+          }
+        : null,
+      conditions,
+      authorizations,
+      administrations,
+      schedules,
+      healthcarePlans,
+      incidents,
+      auditEvents: auditEvents.map((event) => ({
+        id: event.id,
+        action: event.action,
+        occurredAt: event.occurredAt,
+        actorEmail: event.actor?.emailNormalized ?? null,
+      })),
+    };
   }
 
   async createMedication(schoolId: string, userId: string, input: CreateMedicationDto) {
@@ -269,6 +713,63 @@ export class MedicalService {
     });
   }
 
+  async createMedicationSchedule(
+    schoolId: string,
+    userId: string,
+    pupilId: string,
+    input: CreateMedicationScheduleDto,
+  ) {
+    await this.requireMedicalRole(schoolId, userId);
+    await this.requirePupil(schoolId, pupilId);
+    validateDateRange(input.startsOn, input.endsOn);
+    if (new Set(input.daysOfWeek).size !== input.daysOfWeek.length) {
+      throw new BadRequestException("Each weekday can only be selected once.");
+    }
+    const authorization = await this.prisma.medicationAuthorization.findFirst({
+      where: {
+        schoolId,
+        id: input.authorizationId,
+        pupilId,
+        status: "active",
+        startsOn: { lte: dateOnly(input.startsOn) },
+        OR: [{ endsOn: null }, { endsOn: { gte: dateOnly(input.startsOn) } }],
+      },
+      select: { id: true, startsOn: true, endsOn: true },
+    });
+    if (!authorization) {
+      throw new BadRequestException("A current medication authorization for this pupil is required.");
+    }
+    if (authorization.endsOn && (!input.endsOn || authorization.endsOn < dateOnly(input.endsOn))) {
+      throw new BadRequestException("The schedule dates must be within the medication authorization dates.");
+    }
+
+    return this.prisma.$transaction(async (transaction) => {
+      const schedule = await transaction.medicationSchedule.create({
+        data: {
+          schoolId,
+          pupilId,
+          authorizationId: authorization.id,
+          scheduledTime: input.scheduledTime,
+          daysOfWeek: input.daysOfWeek,
+          doseInstructions: input.doseInstructions.trim(),
+          startsOn: dateOnly(input.startsOn),
+          endsOn: input.endsOn ? dateOnly(input.endsOn) : null,
+        },
+      });
+      await transaction.auditEvent.create({
+        data: {
+          schoolId,
+          actorUserId: userId,
+          action: "medical.medication.schedule.created",
+          entityType: "medication_schedule",
+          entityId: schedule.id,
+          metadata: { pupilId, authorizationId: authorization.id, daysOfWeek: input.daysOfWeek },
+        },
+      });
+      return schedule;
+    });
+  }
+
   async createMedicationAdministration(
     schoolId: string,
     userId: string,
@@ -277,7 +778,13 @@ export class MedicalService {
   ) {
     await this.requireMedicalRole(schoolId, userId);
     const administeredAt = new Date(input.administeredAt);
-    const administeredDate = dateOnly(input.administeredAt);
+    const school = await this.prisma.school.findFirst({
+      where: { id: schoolId },
+      select: { timezone: true },
+    });
+    if (!school) throw new NotFoundException("School not found.");
+    const localAdministration = getSchoolDateTime(administeredAt, school.timezone);
+    const administeredDate = dateOnly(localAdministration.date);
     const authorization = await this.prisma.medicationAuthorization.findFirst({
       where: {
         schoolId,
@@ -292,6 +799,28 @@ export class MedicalService {
     if (!authorization) {
       throw new BadRequestException("A current medication authorization for this pupil is required.");
     }
+    let scheduleId: string | undefined;
+    if (input.scheduleId) {
+      const schedule = await this.prisma.medicationSchedule.findFirst({
+        where: {
+          schoolId,
+          id: input.scheduleId,
+          pupilId,
+          authorizationId: authorization.id,
+          status: "active",
+        },
+        select: { id: true, startsOn: true, endsOn: true, daysOfWeek: true },
+      });
+      if (
+        !schedule ||
+        schedule.startsOn > administeredDate ||
+        (schedule.endsOn && schedule.endsOn < administeredDate) ||
+        !schedule.daysOfWeek.includes(localAdministration.weekday)
+      ) {
+        throw new BadRequestException("The scheduled dose must belong to this pupil's active authorization and scheduled date.");
+      }
+      scheduleId = schedule.id;
+    }
     if (Boolean(input.correctionOfId) !== Boolean(input.correctionReason?.trim())) {
       throw new BadRequestException("Corrections require both the original administration ID and a correction reason.");
     }
@@ -302,6 +831,7 @@ export class MedicalService {
           id: input.correctionOfId,
           pupilId,
           authorizationId: authorization.id,
+          scheduleId,
         },
         select: { id: true },
       });
@@ -316,6 +846,7 @@ export class MedicalService {
           schoolId,
           pupilId,
           authorizationId: authorization.id,
+          scheduleId,
           administeredByUserId: userId,
           administeredAt,
           doseGiven: input.doseGiven.trim(),
@@ -337,6 +868,7 @@ export class MedicalService {
           metadata: {
             pupilId,
             authorizationId: authorization.id,
+            scheduleId: scheduleId ?? null,
             status: input.status,
             correctionOfId: input.correctionOfId ?? null,
           },
@@ -362,6 +894,7 @@ export class MedicalService {
           title: input.title.trim(),
           instructions: input.instructions.trim(),
           emergencyActions: input.emergencyActions.trim(),
+          emergencyLocation: input.emergencyLocation?.trim() || null,
           startsOn: dateOnly(input.startsOn),
           reviewDue: input.reviewDue ? dateOnly(input.reviewDue) : null,
         },
@@ -444,7 +977,7 @@ export class MedicalService {
         select: {
           startsOn: true,
           endsOn: true,
-          condition: { select: { name: true, category: true } },
+          condition: { select: { code: true, name: true, category: true } },
         },
       }),
       this.prisma.medicationAuthorization.findMany({
@@ -471,18 +1004,18 @@ export class MedicalService {
   }
 
   private async requireMedicalRole(schoolId: string, userId: string): Promise<void> {
-    const membership = await this.prisma.schoolMembership.findFirst({
-      where: {
+    try {
+      await requireAnySchoolPermission(
+        this.prisma,
         schoolId,
         userId,
-        status: "active",
-        membershipRoles: { some: { role: { code: { in: MEDICAL_ROLE_CODES } } } },
-      },
-      select: { id: true },
-    });
-    if (!membership) {
+        ["medical.manage"],
+        "Medical staff authorization is required.",
+      );
+    } catch (error) {
+      if (!(error instanceof ForbiddenException)) throw error;
       await this.auditRead(schoolId, userId, null, "medical.access_denied", {});
-      throw new ForbiddenException("Medical staff authorization is required.");
+      throw error;
     }
   }
 

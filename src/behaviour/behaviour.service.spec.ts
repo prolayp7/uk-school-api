@@ -1,4 +1,5 @@
 import { ForbiddenException } from "@nestjs/common";
+import { schoolMembershipRole } from "../auth/school-permissions.test-utils";
 import type { PrismaService } from "../prisma/prisma.service";
 import { BehaviourService } from "./behaviour.service";
 
@@ -37,7 +38,9 @@ describe("BehaviourService", () => {
       outboxEvent: { create: outboxCreate },
     };
     const service = new BehaviourService({
-      schoolMembership: { findFirst: jest.fn().mockResolvedValue({ id: "staff-membership" }) },
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({
+        membershipRoles: [schoolMembershipRole("TEACHER")],
+      }) },
       pupilProfile: { findFirst: jest.fn().mockResolvedValue({ id: "pupil-1" }) },
       $transaction: jest.fn((callback: (tx: typeof transaction) => unknown) => callback(transaction)),
     } as unknown as PrismaService);
@@ -67,7 +70,9 @@ describe("BehaviourService", () => {
 
   it("builds a school behaviour summary for the management dashboard", async () => {
     const service = new BehaviourService({
-      schoolMembership: { findFirst: jest.fn().mockResolvedValue({ id: "staff-membership" }) },
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({
+        membershipRoles: [schoolMembershipRole("TEACHER")],
+      }) },
       behaviourIncident: {
         findMany: jest.fn().mockResolvedValue([
           { id: "incident-1", category: "minor", title: "Disruption", points: -1, occurredAt: new Date("2026-10-01T09:00:00Z"), pupilId: "pupil-1" },

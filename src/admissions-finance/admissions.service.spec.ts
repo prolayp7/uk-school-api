@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
+import { schoolMembershipRole } from "../auth/school-permissions.test-utils";
 import type { PrismaService } from "../prisma/prisma.service";
 import { AdmissionsService } from "./admissions.service";
 
@@ -44,7 +45,9 @@ describe("AdmissionsService", () => {
   it("rejects staff status changes that bypass offer acceptance or verified enrolment", async () => {
     const transaction = jest.fn();
     const service = new AdmissionsService({
-      schoolMembership: { findFirst: jest.fn().mockResolvedValue({ id: "admissions-membership" }) },
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({
+        membershipRoles: [schoolMembershipRole("ADMISSIONS_OFFICER")],
+      }) },
       $transaction: transaction,
     } as unknown as PrismaService);
 
@@ -70,7 +73,9 @@ describe("AdmissionsService", () => {
   it("requires an accepted application before the verified enrolment handoff", async () => {
     const transaction = jest.fn();
     const service = new AdmissionsService({
-      schoolMembership: { findFirst: jest.fn().mockResolvedValue({ id: "admissions-membership" }) },
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({
+        membershipRoles: [schoolMembershipRole("ADMISSIONS_OFFICER")],
+      }) },
       application: { findFirst: jest.fn().mockResolvedValue({ id: "application-1", status: "reviewing" }) },
       academicYear: { findFirst: jest.fn().mockResolvedValue({ id: "year-1" }) },
       yearGroup: { findFirst: jest.fn().mockResolvedValue({ id: "group-1" }) },
@@ -102,7 +107,9 @@ describe("AdmissionsService", () => {
       auditEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     const service = new AdmissionsService({
-      schoolMembership: { findFirst: jest.fn().mockResolvedValue({ id: "admissions-membership" }) },
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({
+        membershipRoles: [schoolMembershipRole("ADMISSIONS_OFFICER")],
+      }) },
       application: { findFirst: jest.fn().mockResolvedValue({
         id: "application-1",
         status: "accepted",

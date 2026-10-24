@@ -9,6 +9,24 @@ import { Reflector } from "@nestjs/core";
 import type { Request } from "express";
 import { AuthService } from "./auth.service";
 
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    emailNormalized: string;
+    schoolIds: string[];
+    permissions: string[];
+    roleCodes: string[];
+    schools: Array<{ id: string; code: string; name: string }>;
+  };
+}
+
+interface RequestWithUser extends Request {
+  user?: {
+    id: string;
+    roleCodes: string[];
+  };
+}
+
 function getSessionToken(request: Request): string | null {
   const authHeader = request.header("authorization");
   if (authHeader && /^Bearer\s+/i.test(authHeader)) {
@@ -33,14 +51,14 @@ export class AuthGuard implements CanActivate {
   constructor(private readonly authService: AuthService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request & { user?: any }>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = getSessionToken(request);
 
     if (!token) {
       throw new UnauthorizedException("Authentication required.");
     }
 
-    const session = this.authService.resolveSession(token);
+    const session = await this.authService.resolveSession(token);
     if (!session) {
       throw new UnauthorizedException("Session is invalid or expired.");
     }
@@ -59,11 +77,22 @@ export class AuthGuard implements CanActivate {
 }
 
 @Injectable()
+export class SuperAdminGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest<RequestWithUser>();
+    if (!request.user?.roleCodes.includes("SUPER_ADMIN")) {
+      throw new ForbiddenException("Super administrator access is required.");
+    }
+    return true;
+  }
+}
+
+@Injectable()
 export class SchoolAccessGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest<Request & { user?: any }>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const schoolId =
       (request.params?.schoolId as string | undefined) ??
       (request.query?.schoolId as string | undefined) ??

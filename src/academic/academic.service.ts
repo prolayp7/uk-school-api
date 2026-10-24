@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { hasAnySchoolPermission, requireAnySchoolPermission } from "../auth/school-permissions";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateAssessmentDto,
@@ -15,13 +16,11 @@ import {
   CreatePupilTargetDto,
   CreateSchemeOfWorkDto,
   CreateTimetableSlotDto,
+  TimetableQueryDto,
+  UpdateTimetableSlotDto,
   UpsertAssessmentResultsDto,
   UpsertExamResultsDto,
 } from "./academic.dto";
-
-const CURRICULUM_MANAGER_ROLES = ["HEADTEACHER", "SLT"];
-const EXAM_MANAGER_ROLES = ["EXAMS_OFFICER", "HEADTEACHER", "SLT"];
-const CLASS_MANAGER_ROLES = ["HEADTEACHER", "SLT", "EXAMS_OFFICER"];
 
 function dateOnly(value: string): Date {
   return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
@@ -43,14 +42,26 @@ export class AcademicService {
 
   async listClasses(schoolId: string, userId: string, academicYearId?: string) {
     const roles = await this.getRoleCodes(schoolId, userId);
+    const classManager = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.manage", "exams.manage"],
+    );
+    const hasReadAccess = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.read", "academic.manage", "exams.manage"],
+    );
     const where = {
       schoolId,
       ...(academicYearId ? { academicYearId } : {}),
-      ...(!roles.some((role) => CLASS_MANAGER_ROLES.includes(role))
+      ...(!classManager
         ? { teacher: { person: { userId } } }
         : {}),
     };
-    if (!roles.some((role) => CLASS_MANAGER_ROLES.includes(role)) && !roles.includes("TEACHER")) {
+    if (!hasReadAccess || (!classManager && !roles.includes("TEACHER"))) {
       await this.auditDenied(schoolId, userId, "academic.classes.access_denied");
       throw new ForbiddenException("Teacher or academic leadership access is required.");
     }
@@ -68,6 +79,25 @@ export class AcademicService {
       },
     });
     return { items: classes, total: classes.length };
+  }
+
+  async listClassPupils(schoolId: string, userId: string, classGroupId: string) {
+    await this.requireClassAccess(schoolId, userId, classGroupId);
+    const pupils = await this.prisma.classMembership.findMany({
+      where: { schoolId, classGroupId },
+      orderBy: [{ pupil: { person: { legalFirstName: "asc" } } }, { pupil: { person: { lastName: "asc" } } }],
+      select: {
+        pupil: {
+          select: {
+            id: true,
+            admissionNumber: true,
+            person: { select: { legalFirstName: true, lastName: true } },
+          },
+        },
+      },
+    });
+    await this.auditRead(schoolId, userId, classGroupId, "academic.class_pupils.viewed", { pupilCount: pupils.length });
+    return { items: pupils.map(({ pupil }) => pupil), total: pupils.length };
   }
 
   async getParentPupilTimetable(userId: string, pupilId: string) {
@@ -163,7 +193,19 @@ export class AcademicService {
 
   async listCurriculumPlans(schoolId: string, userId: string, academicYearId?: string) {
     const roles = await this.getRoleCodes(schoolId, userId);
-    if (!roles.some((role) => [...CURRICULUM_MANAGER_ROLES, "TEACHER"].includes(role))) {
+    const canManageAll = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.manage"],
+    );
+    const canRead = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.read", "academic.manage"],
+    );
+    if (!canRead || (!canManageAll && !roles.includes("TEACHER"))) {
       await this.auditDenied(schoolId, userId, "academic.curriculum.access_denied");
       throw new ForbiddenException("Teacher or academic leadership access is required.");
     }
@@ -171,7 +213,7 @@ export class AcademicService {
       where: {
         schoolId,
         ...(academicYearId ? { academicYearId } : {}),
-        ...(!roles.some((role) => CURRICULUM_MANAGER_ROLES.includes(role))
+        ...(!canManageAll
           ? { subject: { classes: { some: { teacher: { person: { userId } } } } } }
           : {}),
       },
@@ -188,6 +230,12 @@ export class AcademicService {
 
   async createCurriculumPlan(schoolId: string, userId: string, input: CreateCurriculumPlanDto) {
     const roles = await this.getRoleCodes(schoolId, userId);
+    const canManageAll = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.manage"],
+    );
     const schoolScopedReferences = await Promise.all([
       this.prisma.academicYear.findFirst({ where: { schoolId, id: input.academicYearId }, select: { id: true } }),
       this.prisma.yearGroup.findFirst({ where: { schoolId, id: input.yearGroupId }, select: { id: true } }),
@@ -196,7 +244,7 @@ export class AcademicService {
     if (schoolScopedReferences.some((reference) => !reference)) {
       throw new BadRequestException("Academic year, year group, and subject must belong to this school.");
     }
-    if (!roles.some((role) => CURRICULUM_MANAGER_ROLES.includes(role))) {
+    if (!canManageAll) {
       if (!roles.includes("TEACHER")) {
         await this.auditDenied(schoolId, userId, "academic.curriculum.create_denied");
         throw new ForbiddenException("Curriculum manager or assigned teacher access is required.");
@@ -247,7 +295,13 @@ export class AcademicService {
     });
     if (!plan) throw new NotFoundException("Curriculum plan not found.");
     const roles = await this.getRoleCodes(schoolId, userId);
-    if (!roles.some((role) => CURRICULUM_MANAGER_ROLES.includes(role))) {
+    const canManageAll = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.manage"],
+    );
+    if (!canManageAll) {
       const assignment = await this.prisma.classGroup.findFirst({
         where: {
           schoolId,
@@ -293,48 +347,289 @@ export class AcademicService {
   }
 
   async createTimetableSlot(schoolId: string, userId: string, input: CreateTimetableSlotDto) {
-    const roles = await this.getRoleCodes(schoolId, userId);
-    if (!roles.some((role) => CURRICULUM_MANAGER_ROLES.includes(role))) {
-      await this.auditDenied(schoolId, userId, "academic.timetable.create_denied");
-      throw new ForbiddenException("Academic leadership access is required to manage the timetable.");
+    await this.requireTimetableRole(schoolId, userId, true, "academic.timetable.create_denied");
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        await this.validateTimetableSlot(schoolId, input, undefined, transaction);
+        const slot = await transaction.timetableSlot.create({
+          data: this.toTimetableSlotData(schoolId, input),
+        });
+        await transaction.auditEvent.create({
+          data: {
+            schoolId,
+            actorUserId: userId,
+            action: "academic.timetable_slot.created",
+            entityType: "timetable_slot",
+            entityId: slot.id,
+            metadata: { classGroupId: input.classGroupId, teacherStaffId: input.teacherStaffId },
+          },
+        });
+        return slot;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      return this.rethrowTimetableSerializationConflict(error, schoolId, input);
     }
-    if (input.endsAt <= input.startsAt) throw new BadRequestException("Timetable slot end must be after its start.");
-    assertDateRange(input.effectiveFrom, input.effectiveTo);
-    const [classGroup, teacher] = await Promise.all([
-      this.prisma.classGroup.findFirst({ where: { schoolId, id: input.classGroupId }, select: { id: true } }),
-      this.prisma.staffProfile.findFirst({ where: { schoolId, id: input.teacherStaffId }, select: { id: true } }),
-    ]);
-    if (!classGroup || !teacher) throw new BadRequestException("Class and teacher must belong to this school.");
-    return this.prisma.$transaction(async (transaction) => {
-      const slot = await transaction.timetableSlot.create({
-        data: {
+  }
+
+  async getTimetableOptions(schoolId: string, userId: string) {
+    const roles = await this.requireTimetableRole(schoolId, userId, false, "academic.timetable.options_denied");
+    const canManage = this.canManageTimetable(roles);
+    const [classes, teachers] = await Promise.all([
+      this.prisma.classGroup.findMany({
+        where: {
           schoolId,
-          classGroupId: input.classGroupId,
-          teacherStaffId: input.teacherStaffId,
-          dayOfWeek: input.dayOfWeek,
-          startsAt: new Date(`1970-01-01T${input.startsAt}:00.000Z`),
-          endsAt: new Date(`1970-01-01T${input.endsAt}:00.000Z`),
-          room: input.room?.trim(),
-          effectiveFrom: dateOnly(input.effectiveFrom),
-          effectiveTo: input.effectiveTo ? dateOnly(input.effectiveTo) : null,
+          ...(!canManage ? { teacher: { person: { userId } } } : {}),
         },
-      });
+        orderBy: [{ academicYear: { startsOn: "desc" } }, { yearGroup: { sortOrder: "asc" } }, { code: "asc" }],
+        select: {
+          id: true,
+          code: true,
+          academicYear: { select: { id: true, code: true, isCurrent: true } },
+          yearGroup: { select: { code: true, name: true } },
+          subject: { select: { code: true, name: true } },
+          teacher: {
+            select: {
+              id: true,
+              person: { select: { legalFirstName: true, lastName: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.staffProfile.findMany({
+        where: {
+          schoolId,
+          staffType: "teacher",
+          ...(!canManage ? { person: { userId } } : {}),
+        },
+        orderBy: [{ person: { legalFirstName: "asc" } }, { person: { lastName: "asc" } }],
+        select: {
+          id: true,
+          staffNumber: true,
+          person: { select: { legalFirstName: true, lastName: true } },
+        },
+      }),
+    ]);
+    return { classes, teachers, canManage };
+  }
+
+  async listTimetableSlots(schoolId: string, userId: string, query: TimetableQueryDto) {
+    const roles = await this.requireTimetableRole(schoolId, userId, false, "academic.timetable.list_denied");
+    const canManage = this.canManageTimetable(roles);
+    const effectiveOn = query.effectiveOn ? dateOnly(query.effectiveOn) : dateOnly(new Date().toISOString());
+    const items = await this.prisma.timetableSlot.findMany({
+      where: {
+        schoolId,
+        effectiveFrom: { lte: effectiveOn },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveOn } }],
+        ...(query.classGroupId ? { classGroupId: query.classGroupId } : {}),
+        ...(query.teacherStaffId ? { teacherStaffId: query.teacherStaffId } : {}),
+        ...(query.dayOfWeek ? { dayOfWeek: query.dayOfWeek } : {}),
+        ...(!canManage ? { classGroup: { teacher: { person: { userId } } } } : {}),
+      },
+      orderBy: [{ dayOfWeek: "asc" }, { startsAt: "asc" }, { classGroup: { code: "asc" } }],
+      select: {
+        id: true,
+        classGroupId: true,
+        teacherStaffId: true,
+        dayOfWeek: true,
+        startsAt: true,
+        endsAt: true,
+        room: true,
+        effectiveFrom: true,
+        effectiveTo: true,
+        classGroup: {
+          select: {
+            code: true,
+            academicYear: { select: { code: true } },
+            yearGroup: { select: { code: true, name: true } },
+            subject: { select: { code: true, name: true } },
+          },
+        },
+        teacher: {
+          select: {
+            staffNumber: true,
+            person: { select: { legalFirstName: true, lastName: true } },
+          },
+        },
+      },
+    });
+    await this.auditRead(schoolId, userId, schoolId, "academic.timetable.viewed", { slotCount: items.length, effectiveOn });
+    return {
+      items: items.map((slot) => ({
+        ...slot,
+        startsAt: slot.startsAt.toISOString().slice(11, 16),
+        endsAt: slot.endsAt.toISOString().slice(11, 16),
+      })),
+      total: items.length,
+      effectiveOn: effectiveOn.toISOString().slice(0, 10),
+    };
+  }
+
+  async updateTimetableSlot(
+    schoolId: string,
+    userId: string,
+    slotId: string,
+    input: UpdateTimetableSlotDto,
+  ) {
+    await this.requireTimetableRole(schoolId, userId, true, "academic.timetable.update_denied");
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const existing = await transaction.timetableSlot.findFirst({
+          where: { schoolId, id: slotId },
+          select: { id: true },
+        });
+        if (!existing) throw new NotFoundException("Timetable slot not found.");
+        await this.validateTimetableSlot(schoolId, input, slotId, transaction);
+        const slot = await transaction.timetableSlot.update({
+          where: { schoolId_id: { schoolId, id: slotId } },
+          data: this.toTimetableSlotData(schoolId, input),
+        });
+        await transaction.auditEvent.create({
+          data: {
+            schoolId,
+            actorUserId: userId,
+            action: "academic.timetable_slot.updated",
+            entityType: "timetable_slot",
+            entityId: slot.id,
+            metadata: { classGroupId: input.classGroupId, teacherStaffId: input.teacherStaffId },
+          },
+        });
+        return slot;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      return this.rethrowTimetableSerializationConflict(error, schoolId, input, slotId);
+    }
+  }
+
+  async deleteTimetableSlot(schoolId: string, userId: string, slotId: string) {
+    await this.requireTimetableRole(schoolId, userId, true, "academic.timetable.delete_denied");
+    const existing = await this.prisma.timetableSlot.findFirst({ where: { schoolId, id: slotId }, select: { id: true } });
+    if (!existing) throw new NotFoundException("Timetable slot not found.");
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.timetableSlot.delete({ where: { schoolId_id: { schoolId, id: slotId } } });
       await transaction.auditEvent.create({
         data: {
           schoolId,
           actorUserId: userId,
-          action: "academic.timetable_slot.created",
+          action: "academic.timetable_slot.deleted",
           entityType: "timetable_slot",
-          entityId: slot.id,
-          metadata: { classGroupId: input.classGroupId, teacherStaffId: input.teacherStaffId },
+          entityId: slotId,
+          metadata: {},
         },
       });
-      return slot;
     });
+    return { id: slotId, deleted: true };
+  }
+
+  private async requireTimetableRole(
+    schoolId: string,
+    userId: string,
+    manage: boolean,
+    deniedAction: string,
+  ): Promise<string[]> {
+    const roles = await this.getRoleCodes(schoolId, userId);
+    const allowed = manage
+      ? this.canManageTimetable(roles)
+      : this.canManageTimetable(roles) || roles.includes("TEACHER");
+    if (!allowed) {
+      await this.auditDenied(schoolId, userId, deniedAction);
+      throw new ForbiddenException(
+        manage
+          ? "Timetable management is available to school administrators and leadership."
+          : "Timetable access is available to teachers, school administrators, and leadership.",
+      );
+    }
+    return roles;
+  }
+
+  private canManageTimetable(roles: string[]): boolean {
+    return roles.some((role) => ["SUPER_ADMIN", "HEADTEACHER", "SLT", "ADMIN"].includes(role));
+  }
+
+  private async validateTimetableSlot(
+    schoolId: string,
+    input: CreateTimetableSlotDto,
+    excludeSlotId?: string,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const database = transaction ?? this.prisma;
+    if (input.endsAt <= input.startsAt) {
+      throw new BadRequestException("Timetable slot end must be after its start.");
+    }
+    assertDateRange(input.effectiveFrom, input.effectiveTo);
+    const [classGroup, teacher] = await Promise.all([
+      database.classGroup.findFirst({ where: { schoolId, id: input.classGroupId }, select: { id: true } }),
+      database.staffProfile.findFirst({
+        where: { schoolId, id: input.teacherStaffId, staffType: "teacher" },
+        select: { id: true },
+      }),
+    ]);
+    if (!classGroup || !teacher) {
+      throw new BadRequestException("Class and teacher must belong to this school.");
+    }
+
+    const possibleConflicts = await database.timetableSlot.findMany({
+      where: {
+        schoolId,
+        dayOfWeek: input.dayOfWeek,
+        ...(excludeSlotId ? { id: { not: excludeSlotId } } : {}),
+        startsAt: { lt: new Date(`1970-01-01T${input.endsAt}:00.000Z`) },
+        endsAt: { gt: new Date(`1970-01-01T${input.startsAt}:00.000Z`) },
+        effectiveFrom: { lte: input.effectiveTo ? dateOnly(input.effectiveTo) : new Date("9999-12-31T00:00:00.000Z") },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: dateOnly(input.effectiveFrom) } }],
+      },
+      select: {
+        classGroupId: true,
+        teacherStaffId: true,
+        room: true,
+        classGroup: { select: { code: true } },
+        teacher: { select: { person: { select: { legalFirstName: true, lastName: true } } } },
+      },
+    });
+    const room = input.room?.trim().toLocaleLowerCase();
+    const conflicts = possibleConflicts.flatMap((slot) => {
+      const reasons = [
+        slot.classGroupId === input.classGroupId ? "class" : null,
+        slot.teacherStaffId === input.teacherStaffId ? "teacher" : null,
+        room && slot.room?.trim().toLocaleLowerCase() === room ? "room" : null,
+      ].filter((reason): reason is string => reason !== null);
+      return reasons.length > 0
+        ? [`${slot.classGroup.code} (${slot.teacher.person.legalFirstName} ${slot.teacher.person.lastName}): ${reasons.join(", ")}`]
+        : [];
+    });
+    if (conflicts.length > 0) {
+      throw new BadRequestException(`This slot overlaps existing ${conflicts.join("; ")}.`);
+    }
+  }
+
+  private async rethrowTimetableSerializationConflict(
+    error: unknown,
+    schoolId: string,
+    input: CreateTimetableSlotDto,
+    excludeSlotId?: string,
+  ): Promise<never> {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+      await this.validateTimetableSlot(schoolId, input, excludeSlotId);
+    }
+    throw error;
+  }
+
+  private toTimetableSlotData(schoolId: string, input: CreateTimetableSlotDto) {
+    return {
+      schoolId,
+      classGroupId: input.classGroupId,
+      teacherStaffId: input.teacherStaffId,
+      dayOfWeek: input.dayOfWeek,
+      startsAt: new Date(`1970-01-01T${input.startsAt}:00.000Z`),
+      endsAt: new Date(`1970-01-01T${input.endsAt}:00.000Z`),
+      room: input.room?.trim() || null,
+      effectiveFrom: dateOnly(input.effectiveFrom),
+      effectiveTo: input.effectiveTo ? dateOnly(input.effectiveTo) : null,
+    };
   }
 
   async createGradeScale(schoolId: string, userId: string, input: CreateGradeScaleDto) {
-    await this.requireRoles(schoolId, userId, EXAM_MANAGER_ROLES, "exam.grade_scale.manage");
+    await this.requireRoles(schoolId, userId, "exams.manage", "exam.grade_scale.manage");
     if (input.bands.length === 0) throw new BadRequestException("At least one grade band is required.");
     ensureDistinct(input.bands.map(({ code }) => code.toUpperCase()), "Grade band codes must be unique within a scale.");
     const ordered = [...input.bands].sort((left, right) => left.minScore - right.minScore);
@@ -372,6 +667,82 @@ export class AcademicService {
       });
       return transaction.gradeScale.findFirst({ where: { schoolId, id: scale.id }, include: { bands: { orderBy: { sortOrder: "asc" } } } });
     });
+  }
+
+  async listGradeScales(schoolId: string, userId: string) {
+    const canRead = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.read", "academic.manage", "exams.manage"],
+    );
+    if (!canRead) {
+      await this.auditDenied(schoolId, userId, "academic.grade_scales.access_denied");
+      throw new ForbiddenException("Teacher or academic leadership access is required.");
+    }
+    const scales = await this.prisma.gradeScale.findMany({
+      where: { schoolId },
+      orderBy: [{ name: "asc" }],
+      include: { bands: { orderBy: { sortOrder: "asc" } } },
+    });
+    await this.auditRead(schoolId, userId, schoolId, "academic.grade_scales.viewed", { scaleCount: scales.length });
+    return { items: scales, total: scales.length };
+  }
+
+  async listAssessments(schoolId: string, userId: string, academicYearId?: string) {
+    const roles = await this.getRoleCodes(schoolId, userId);
+    const canManageAll = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.manage", "exams.manage"],
+    );
+    const canRead = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.read", "academic.manage", "exams.manage"],
+    );
+    if (!canRead || (!canManageAll && !roles.includes("TEACHER"))) {
+      await this.auditDenied(schoolId, userId, "academic.assessments.access_denied");
+      throw new ForbiddenException("Teacher or academic leadership access is required.");
+    }
+    const assessments = await this.prisma.assessment.findMany({
+      where: {
+        schoolId,
+        classGroup: {
+          ...(academicYearId ? { academicYearId } : {}),
+          ...(!canManageAll ? { teacher: { person: { userId } } } : {}),
+        },
+      },
+      orderBy: [{ assessedOn: "desc" }, { createdAt: "desc" }],
+      include: {
+        classGroup: {
+          select: {
+            id: true,
+            code: true,
+            academicYearId: true,
+            yearGroup: { select: { code: true, name: true } },
+            subject: { select: { id: true, code: true, name: true } },
+          },
+        },
+        gradeScale: { select: { id: true, code: true, name: true, bands: { orderBy: { sortOrder: "asc" } } } },
+        results: {
+          orderBy: [{ pupil: { person: { legalFirstName: "asc" } } }, { pupil: { person: { lastName: "asc" } } }],
+          select: {
+            id: true,
+            pupilId: true,
+            score: true,
+            gradeCode: true,
+            comments: true,
+            revision: true,
+            pupil: { select: { admissionNumber: true, person: { select: { legalFirstName: true, lastName: true } } } },
+          },
+        },
+      },
+    });
+    await this.auditRead(schoolId, userId, schoolId, "academic.assessments.viewed", { assessmentCount: assessments.length });
+    return { items: assessments, total: assessments.length };
   }
 
   async createAssessment(schoolId: string, userId: string, input: CreateAssessmentDto) {
@@ -519,7 +890,19 @@ export class AcademicService {
 
   async getPupilAssessmentResults(schoolId: string, userId: string, pupilId: string) {
     const roles = await this.getRoleCodes(schoolId, userId);
-    if (!roles.some((role) => [...CLASS_MANAGER_ROLES, "TEACHER"].includes(role))) {
+    const canManageAll = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.manage", "exams.manage"],
+    );
+    const canRead = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.read", "academic.manage", "exams.manage"],
+    );
+    if (!canRead || (!canManageAll && !roles.includes("TEACHER"))) {
       await this.auditDenied(schoolId, userId, "academic.results.access_denied", pupilId);
       throw new ForbiddenException("Assigned teacher or academic leadership access is required.");
     }
@@ -527,7 +910,7 @@ export class AcademicService {
       where: {
         schoolId,
         pupilId,
-        ...(!roles.some((role) => CLASS_MANAGER_ROLES.includes(role))
+        ...(!canManageAll
           ? {
               assessment: {
                 classGroup: {
@@ -556,9 +939,15 @@ export class AcademicService {
 
   async createPupilTarget(schoolId: string, userId: string, pupilId: string, input: CreatePupilTargetDto) {
     const roles = await this.getRoleCodes(schoolId, userId);
+    const canManageAll = await hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["academic.manage", "exams.manage"],
+    );
     const pupil = await this.prisma.pupilProfile.findFirst({ where: { schoolId, id: pupilId }, select: { id: true } });
     if (!pupil) throw new NotFoundException("Pupil not found.");
-    if (!roles.some((role) => CLASS_MANAGER_ROLES.includes(role))) {
+    if (!canManageAll) {
       const assignment = await this.prisma.classMembership.findFirst({
         where: {
           schoolId,
@@ -607,7 +996,7 @@ export class AcademicService {
   }
 
   async createExamSeries(schoolId: string, userId: string, input: CreateExamSeriesDto) {
-    await this.requireRoles(schoolId, userId, EXAM_MANAGER_ROLES, "exam.series.create_denied");
+    await this.requireRoles(schoolId, userId, "exams.manage", "exam.series.create_denied");
     assertDateRange(input.startsOn, input.endsOn);
     if (input.academicYearId) {
       const year = await this.prisma.academicYear.findFirst({ where: { schoolId, id: input.academicYearId }, select: { id: true } });
@@ -665,8 +1054,26 @@ export class AcademicService {
     });
   }
 
+  async listExamSeries(schoolId: string, userId: string, academicYearId?: string) {
+    await this.requireRoles(schoolId, userId, "exams.manage", "exam.series.read_denied");
+    const series = await this.prisma.examSeries.findMany({
+      where: { schoolId, ...(academicYearId ? { academicYearId } : {}) },
+      orderBy: [{ startsOn: "desc" }, { code: "asc" }],
+      include: {
+        academicYear: { select: { code: true } },
+        sessions: {
+          orderBy: { startsAt: "asc" },
+          include: { subject: { select: { id: true, code: true, name: true } } },
+        },
+        _count: { select: { candidates: true } },
+      },
+    });
+    await this.auditRead(schoolId, userId, schoolId, "exam.series.viewed", { seriesCount: series.length });
+    return { items: series, total: series.length };
+  }
+
   async addExamCandidates(schoolId: string, userId: string, seriesId: string, input: CreateExamCandidatesDto) {
-    await this.requireRoles(schoolId, userId, EXAM_MANAGER_ROLES, "exam.candidates.manage_denied");
+    await this.requireRoles(schoolId, userId, "exams.manage", "exam.candidates.manage_denied");
     ensureDistinct(input.candidates.map(({ pupilId, subjectId }) => `${pupilId}:${subjectId}`), "A pupil/subject pair may only be entered once per request.");
     ensureDistinct(input.candidates.map(({ candidateNumber }) => candidateNumber.toUpperCase()), "Candidate numbers must be unique in the request.");
     const series = await this.prisma.examSeries.findFirst({ where: { schoolId, id: seriesId }, select: { id: true } });
@@ -717,8 +1124,31 @@ export class AcademicService {
     });
   }
 
+  async listExamCandidates(schoolId: string, userId: string, seriesId: string) {
+    await this.requireRoles(schoolId, userId, "exams.manage", "exam.candidates.read_denied");
+    const series = await this.prisma.examSeries.findFirst({ where: { schoolId, id: seriesId }, select: { id: true } });
+    if (!series) throw new NotFoundException("Exam series not found.");
+    const candidates = await this.prisma.examCandidate.findMany({
+      where: { schoolId, examSeriesId: seriesId },
+      orderBy: [{ subject: { code: "asc" } }, { candidateNumber: "asc" }],
+      select: {
+        id: true,
+        candidateNumber: true,
+        status: true,
+        pupil: { select: { admissionNumber: true, person: { select: { legalFirstName: true, lastName: true } } } },
+        subject: { select: { id: true, code: true, name: true } },
+        results: { select: { grade: true, score: true, revision: true, recordedAt: true } },
+      },
+    });
+    await this.auditRead(schoolId, userId, seriesId, "exam.candidates.viewed", { candidateCount: candidates.length });
+    return {
+      items: candidates.map(({ results, ...candidate }) => ({ ...candidate, result: results[0] ?? null })),
+      total: candidates.length,
+    };
+  }
+
   async upsertExamResults(schoolId: string, userId: string, seriesId: string, input: UpsertExamResultsDto) {
-    await this.requireRoles(schoolId, userId, EXAM_MANAGER_ROLES, "exam.results.manage_denied");
+    await this.requireRoles(schoolId, userId, "exams.manage", "exam.results.manage_denied");
     ensureDistinct(input.results.map(({ candidateId }) => candidateId), "Each candidate may appear once per result update.");
     const candidateIds = input.results.map(({ candidateId }) => candidateId);
     const candidates = await this.prisma.examCandidate.findMany({
@@ -791,7 +1221,7 @@ export class AcademicService {
   }
 
   async getExamResults(schoolId: string, userId: string, seriesId: string) {
-    await this.requireRoles(schoolId, userId, EXAM_MANAGER_ROLES, "exam.results.read_denied");
+    await this.requireRoles(schoolId, userId, "exams.manage", "exam.results.read_denied");
     const series = await this.prisma.examSeries.findFirst({ where: { schoolId, id: seriesId }, select: { id: true } });
     if (!series) throw new NotFoundException("Exam series not found.");
     const results = await this.prisma.examResult.findMany({
@@ -823,7 +1253,9 @@ export class AcademicService {
     });
     if (!classGroup) throw new NotFoundException("Class group not found.");
     const roles = await this.getRoleCodes(schoolId, userId);
-    if (roles.some((role) => CLASS_MANAGER_ROLES.includes(role))) return classGroup;
+    if (await hasAnySchoolPermission(this.prisma, schoolId, userId, ["academic.manage", "exams.manage"])) {
+      return classGroup;
+    }
     if (!roles.includes("TEACHER") || classGroup.teacher.person.userId !== userId) {
       await this.auditDenied(schoolId, userId, "academic.class.access_denied", classGroupId);
       throw new ForbiddenException("Only the assigned teacher or academic leadership may access this class.");
@@ -831,9 +1263,9 @@ export class AcademicService {
     return classGroup;
   }
 
-  private async requireRoles(schoolId: string, userId: string, allowed: string[], action: string): Promise<string[]> {
+  private async requireRoles(schoolId: string, userId: string, permissionCode: string, action: string): Promise<string[]> {
     const roles = await this.getRoleCodes(schoolId, userId);
-    if (!roles.some((role) => allowed.includes(role))) {
+    if (!(await hasAnySchoolPermission(this.prisma, schoolId, userId, [permissionCode]))) {
       await this.auditDenied(schoolId, userId, action);
       throw new ForbiddenException("This academic operation is not permitted for your school role.");
     }

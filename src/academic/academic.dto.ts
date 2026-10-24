@@ -23,6 +23,27 @@ export class AcademicQueryDto {
   academicYearId?: string;
 }
 
+export class TimetableQueryDto {
+  @IsOptional()
+  @IsUUID()
+  classGroupId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  teacherStaffId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(7)
+  dayOfWeek?: number;
+
+  @IsOptional()
+  @IsDateString({ strict: true })
+  effectiveOn?: string;
+}
+
 export class CreateCurriculumPlanDto {
   @IsUUID()
   academicYearId!: string;
@@ -119,6 +140,8 @@ export class CreateTimetableSlotDto {
   @IsDateString({ strict: true })
   effectiveTo?: string;
 }
+
+export class UpdateTimetableSlotDto extends CreateTimetableSlotDto {}
 
 export class CreateGradeScaleDto {
   @IsString()

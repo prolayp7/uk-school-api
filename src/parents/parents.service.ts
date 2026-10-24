@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import sharp from "sharp";
 import { AuthService } from "../auth/auth.service";
+import { getSchoolAccess } from "../auth/school-permissions";
 import { FileStorageService } from "../common/file-storage.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { UpdateParentContactDto } from "./parents.dto";
@@ -21,7 +22,6 @@ type UploadedPhoto = {
   mimetype: string;
 };
 
-const MANAGEMENT_ROLES = new Set(["SUPER_ADMIN", "HEADTEACHER", "SLT", "ADMIN"]);
 const MAX_PARENT_PHOTO_BYTES = 2 * 1024 * 1024;
 const PHOTO_FORMATS = new Map([
   ["image/jpeg", "jpeg"],
@@ -62,21 +62,27 @@ export class ParentsService {
     return profile;
   }
 
-  private assertCanEdit(
+  private async assertCanEdit(
+    schoolId: string,
     user: ParentEditor,
     profile: { person: { userId: string | null } },
-  ): void {
+  ): Promise<void> {
+    const access = await getSchoolAccess(this.prisma, schoolId, user.id);
+    const isStaff = access.roleCodes.some((role) => !["PARENT", "STUDENT"].includes(role));
     const staffCanEdit =
-      user.roleCodes.some((role) => MANAGEMENT_ROLES.has(role)) &&
-      user.permissions.includes("school.members.manage");
-    const parentCanEdit = user.roleCodes.includes("PARENT") && profile.person.userId === user.id;
+      isStaff &&
+      (access.roleCodes.includes("SUPER_ADMIN") ||
+        access.permissionCodes.includes("school.members.manage"));
+    const parentCanEdit =
+      access.roleCodes.includes("PARENT") && profile.person.userId === user.id;
     if (!staffCanEdit && !parentCanEdit) {
       throw new ForbiddenException("You do not have permission to edit this parent or carer.");
     }
   }
 
-  private assertSuperAdmin(user: ParentEditor): void {
-    if (!user.roleCodes.includes("SUPER_ADMIN")) {
+  private async assertSuperAdmin(schoolId: string, user: ParentEditor): Promise<void> {
+    const access = await getSchoolAccess(this.prisma, schoolId, user.id);
+    if (!access.roleCodes.includes("SUPER_ADMIN")) {
       throw new ForbiddenException("Super administrator access is required.");
     }
   }
@@ -93,7 +99,7 @@ export class ParentsService {
     }
 
     const profile = await this.findParent(schoolId, parentId);
-    this.assertCanEdit(user, profile);
+    await this.assertCanEdit(schoolId, user, profile);
 
     let newPhotoPath: string | undefined;
     if (photo) {
@@ -197,7 +203,7 @@ export class ParentsService {
     parentId: string,
     password: string,
   ) {
-    this.assertSuperAdmin(user);
+    await this.assertSuperAdmin(schoolId, user);
 
     const profile = await this.findParent(schoolId, parentId);
     const portalUserId = profile.person.userId;
@@ -229,7 +235,7 @@ export class ParentsService {
   }
 
   async getPortalLogin(schoolId: string, user: ParentEditor, parentId: string) {
-    this.assertSuperAdmin(user);
+    await this.assertSuperAdmin(schoolId, user);
     const profile = await this.findParent(schoolId, parentId);
     if (!profile.person.userId) {
       throw new NotFoundException("No linked portal account was found for this contact.");
@@ -248,7 +254,7 @@ export class ParentsService {
 
   async getPhoto(schoolId: string, user: ParentEditor, parentId: string) {
     const profile = await this.findParent(schoolId, parentId);
-    this.assertCanEdit(user, profile);
+    await this.assertCanEdit(schoolId, user, profile);
     if (!profile.photoStoragePath) throw new NotFoundException("Parent photo not found.");
 
     try {

@@ -24,8 +24,10 @@ import {
   CreateInvoiceDto,
   CreateOfferDto,
   CreateRefundDto,
+  FinanceListQueryDto,
   OfferResponseDto,
   RequestApplicationDocumentDto,
+  UpdateChargeDto,
   UpdateApplicationStatusDto,
 } from "./admissions-finance.dto";
 import { AdmissionsService } from "./admissions.service";
@@ -145,6 +147,15 @@ export class ParentAdmissionsController {
 export class FinanceController {
   constructor(private readonly financeService: FinanceService) {}
 
+  @Get("charges")
+  listCharges(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Query() query: FinanceListQueryDto,
+  ) {
+    return this.financeService.listCharges(resolveSchoolId(user, schoolId), user.id, query);
+  }
+
   @Post("charges")
   createCharge(
     @CurrentUser() user: AuthenticatedUser,
@@ -154,6 +165,34 @@ export class FinanceController {
     return this.financeService.createCharge(resolveSchoolId(user, schoolId), user.id, body);
   }
 
+  @Patch("charges/:chargeId")
+  updateCharge(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Param("chargeId", ParseUUIDPipe) chargeId: string,
+    @Body() body: UpdateChargeDto,
+  ) {
+    return this.financeService.updateCharge(resolveSchoolId(user, schoolId), user.id, chargeId, body);
+  }
+
+  @Get("invoice-recipients")
+  listInvoiceRecipients(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Query() query: FinanceListQueryDto,
+  ) {
+    return this.financeService.listInvoiceRecipients(resolveSchoolId(user, schoolId), user.id, query);
+  }
+
+  @Get("invoices")
+  listInvoices(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Query() query: FinanceListQueryDto,
+  ) {
+    return this.financeService.listInvoices(resolveSchoolId(user, schoolId), user.id, query);
+  }
+
   @Post("invoices")
   createInvoice(
     @CurrentUser() user: AuthenticatedUser,
@@ -161,6 +200,15 @@ export class FinanceController {
     @Body() body: CreateInvoiceDto,
   ) {
     return this.financeService.createInvoice(resolveSchoolId(user, schoolId), user.id, body);
+  }
+
+  @Get("invoices/:invoiceId")
+  getInvoice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Param("invoiceId", ParseUUIDPipe) invoiceId: string,
+  ) {
+    return this.financeService.getInvoice(resolveSchoolId(user, schoolId), user.id, invoiceId);
   }
 
   @Patch("invoices/:invoiceId/status")
@@ -182,6 +230,15 @@ export class FinanceController {
     @Body() body: CreateRefundDto,
   ) {
     return this.financeService.createRefund(resolveSchoolId(user, schoolId), user.id, paymentId, body);
+  }
+
+  @Get("payments")
+  listPayments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Query() query: FinanceListQueryDto,
+  ) {
+    return this.financeService.listPayments(resolveSchoolId(user, schoolId), user.id, query);
   }
 
   @Get("reports/balances")

@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { getSchoolAccess, hasAnySchoolPermission, requireAnySchoolPermission } from "../auth/school-permissions";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateSafeguardingActionDto,
@@ -12,8 +13,6 @@ import {
   GrantSafeguardingCaseAccessDto,
   UpdateSafeguardingCaseStatusDto,
 } from "./behaviour.dto";
-
-const DSL_ROLE_CODES = ["DSL", "DEPUTY_DSL"];
 
 @Injectable()
 export class SafeguardingService {
@@ -33,7 +32,15 @@ export class SafeguardingService {
       where: {
         schoolId,
         status: "active",
-        membershipRoles: { some: { role: { code: { in: DSL_ROLE_CODES } } } },
+        membershipRoles: {
+          some: {
+            role: {
+              rolePermissions: {
+                some: { schoolId, permissionCode: "safeguarding.manage" },
+              },
+            },
+          },
+        },
       },
       select: { userId: true },
     });
@@ -101,11 +108,14 @@ export class SafeguardingService {
   }
 
   async listCases(schoolId: string, userId: string) {
-    await this.requireDslRole(schoolId, userId, null);
+    const access = await getSchoolAccess(this.prisma, schoolId, userId);
+    const isSuperadmin = access.roleCodes.includes("SUPER_ADMIN");
+    if (!isSuperadmin) await this.requireDslRole(schoolId, userId, null);
+
     const cases = await this.prisma.safeguardingCase.findMany({
       where: {
         schoolId,
-        access: { some: { userId, revokedAt: null } },
+        ...(!isSuperadmin ? { access: { some: { userId, revokedAt: null } } } : {}),
       },
       orderBy: { openedAt: "desc" },
       select: { id: true, pupilId: true, status: true, openedAt: true, closedAt: true },
@@ -118,7 +128,7 @@ export class SafeguardingService {
           action: "safeguarding.case.viewed",
           entityType: "safeguarding_case",
           entityId: safeguardingCase.id,
-          metadata: { view: "case_list" },
+          metadata: { view: "case_list", scope: isSuperadmin ? "school" : "assigned" },
         })),
       });
     }
@@ -160,6 +170,16 @@ export class SafeguardingService {
           orderBy: { scheduledAt: "desc" },
           select: { id: true, meetingType: true, scheduledAt: true, details: true, createdAt: true },
         },
+        access: {
+          where: { revokedAt: null },
+          orderBy: { grantedAt: "asc" },
+          select: {
+            userId: true,
+            reason: true,
+            grantedAt: true,
+            user: { select: { emailNormalized: true } },
+          },
+        },
       },
     });
     if (!safeguardingCase) {
@@ -178,6 +198,47 @@ export class SafeguardingService {
       },
     });
     return safeguardingCase;
+  }
+
+  async listCaseAccessOptions(schoolId: string, userId: string, caseId: string) {
+    await this.requireCaseAccess(schoolId, userId, caseId);
+    const memberships = await this.prisma.schoolMembership.findMany({
+      where: {
+        schoolId,
+        status: "active",
+        membershipRoles: {
+          some: {
+            role: {
+              rolePermissions: {
+                some: { schoolId, permissionCode: "safeguarding.manage" },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        userId: true,
+        user: { select: { emailNormalized: true } },
+      },
+    });
+    await this.prisma.auditEvent.create({
+      data: {
+        schoolId,
+        actorUserId: userId,
+        action: "safeguarding.case.access_options.viewed",
+        entityType: "safeguarding_case",
+        entityId: caseId,
+        metadata: { resultCount: memberships.length },
+      },
+    });
+
+    return {
+      items: memberships.map((membership) => ({
+        userId: membership.userId,
+        email: membership.user.emailNormalized,
+      })),
+    };
   }
 
   async createAction(
@@ -341,40 +402,34 @@ export class SafeguardingService {
   }
 
   private async requireStaffMember(schoolId: string, userId: string): Promise<void> {
-    const membership = await this.prisma.schoolMembership.findFirst({
-      where: {
-        schoolId,
-        userId,
-        status: "active",
-        membershipRoles: { some: { role: { code: { notIn: ["PARENT", "STUDENT"] } } } },
-      },
-      select: { id: true },
-    });
-    if (!membership) {
-      throw new ForbiddenException("Active staff membership is required to submit a safeguarding concern.");
-    }
+    await requireAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["safeguarding.report"],
+      "Active staff membership is required to submit a safeguarding concern.",
+    );
   }
 
   private async hasDslRole(schoolId: string, userId: string): Promise<boolean> {
-    const membership = await this.prisma.schoolMembership.findFirst({
-      where: {
-        schoolId,
-        userId,
-        status: "active",
-        membershipRoles: { some: { role: { code: { in: DSL_ROLE_CODES } } } },
-      },
-      select: { id: true },
-    });
-    return Boolean(membership);
+    return hasAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["safeguarding.manage"],
+    );
   }
 
   private async requireDslRole(schoolId: string, userId: string, caseId: string | null): Promise<void> {
     if (await this.hasDslRole(schoolId, userId)) return;
-    await this.auditDenied(schoolId, userId, caseId, "dsl_role_required");
-    throw new ForbiddenException("DSL or deputy DSL membership is required for safeguarding casework.");
+    await this.auditDenied(schoolId, userId, caseId, "safeguarding_permission_required");
+    throw new ForbiddenException("Safeguarding casework permission is required.");
   }
 
   private async requireCaseAccess(schoolId: string, userId: string, caseId: string): Promise<void> {
+    const access = await getSchoolAccess(this.prisma, schoolId, userId);
+    if (access.roleCodes.includes("SUPER_ADMIN")) return;
+
     await this.requireDslRole(schoolId, userId, caseId);
     const grant = await this.prisma.safeguardingCaseAccess.findUnique({
       where: { schoolId_caseId_userId: { schoolId, caseId, userId } },

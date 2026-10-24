@@ -4,13 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { requireAnySchoolPermission } from "../auth/school-permissions";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateSendTargetReviewDto,
   CreateSupportPlanDto,
+  ListSendPupilsQueryDto,
 } from "./support.dto";
-
-const SEND_ROLE_CODES = ["SENCO", "DEPUTY_SENCO", "HEADTEACHER"];
 
 function dateOnly(value: string): Date {
   return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
@@ -25,6 +25,146 @@ function validateDateRange(startsOn: string, endsOn?: string): void {
 @Injectable()
 export class SupportService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async listSchoolSendPupils(
+    schoolId: string,
+    userId: string,
+    filters: ListSendPupilsQueryDto,
+  ) {
+    await this.requireSendRole(schoolId, userId);
+    const page = filters.page ?? 1;
+    const pageSize = filters.pageSize ?? 50;
+    const search = filters.search?.trim();
+    const where = {
+      schoolId,
+      status: "enrolled",
+      ...(search
+        ? {
+            OR: [
+              { admissionNumber: { contains: search, mode: "insensitive" as const } },
+              { person: { is: { legalFirstName: { contains: search, mode: "insensitive" as const } } } },
+              { person: { is: { preferredName: { contains: search, mode: "insensitive" as const } } } },
+              { person: { is: { lastName: { contains: search, mode: "insensitive" as const } } } },
+            ],
+          }
+        : {}),
+    };
+    const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const [
+      pupils,
+      total,
+      pupilCount,
+      senSupportCount,
+      ehcpCount,
+      reviewsDueCount,
+      activePlanCount,
+    ] = await Promise.all([
+      this.prisma.pupilProfile.findMany({
+        where,
+        orderBy: [{ person: { lastName: "asc" } }, { person: { legalFirstName: "asc" } }, { id: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          admissionNumber: true,
+          person: {
+            select: { legalFirstName: true, preferredName: true, lastName: true },
+          },
+          enrolments: {
+            where: { status: "active" },
+            orderBy: { startsOn: "desc" },
+            take: 1,
+            select: {
+              yearGroup: { select: { code: true, name: true } },
+              form: { select: { code: true } },
+            },
+          },
+          sendProfile: {
+            select: {
+              status: true,
+              primaryNeed: true,
+              supportLevel: true,
+              reviewDue: true,
+            },
+          },
+          supportPlans: {
+            where: { status: "active" },
+            orderBy: [{ startsOn: "desc" }, { createdAt: "desc" }],
+            select: {
+              id: true,
+              title: true,
+              startsOn: true,
+              endsOn: true,
+              targets: {
+                where: { status: "active" },
+                select: { id: true, reviewDue: true },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.pupilProfile.count({ where }),
+      this.prisma.pupilProfile.count({ where: { schoolId, status: "enrolled" } }),
+      this.prisma.sendProfile.count({
+        where: { schoolId, status: "sen_support", pupil: { status: "enrolled" } },
+      }),
+      this.prisma.sendProfile.count({
+        where: { schoolId, status: "ehcp", pupil: { status: "enrolled" } },
+      }),
+      this.prisma.sendProfile.count({
+        where: {
+          schoolId,
+          reviewDue: { not: null, lte: today },
+          pupil: { status: "enrolled" },
+        },
+      }),
+      this.prisma.supportPlan.count({
+        where: { schoolId, status: "active", pupil: { status: "enrolled" } },
+      }),
+    ]);
+
+    await this.auditRead(schoolId, userId, null, "send.school_register.viewed", {
+      page,
+      pageSize,
+      resultCount: pupils.length,
+      total,
+      searched: Boolean(search),
+    });
+
+    return {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+      overview: {
+        pupilCount,
+        senSupportCount,
+        ehcpCount,
+        reviewsDueCount,
+        activePlanCount,
+      },
+      items: pupils.map((pupil) => ({
+        pupilId: pupil.id,
+        admissionNumber: pupil.admissionNumber,
+        name: `${pupil.person.preferredName || pupil.person.legalFirstName} ${pupil.person.lastName}`.trim(),
+        yearGroup: pupil.enrolments[0]?.yearGroup.name ?? null,
+        yearGroupCode: pupil.enrolments[0]?.yearGroup.code ?? null,
+        form: pupil.enrolments[0]?.form.code ?? null,
+        profile: pupil.sendProfile,
+        activePlans: pupil.supportPlans.map((plan) => ({
+          id: plan.id,
+          title: plan.title,
+          startsOn: plan.startsOn,
+          endsOn: plan.endsOn,
+          targetCount: plan.targets.length,
+          nextReviewDue: plan.targets
+            .map(({ reviewDue }) => reviewDue)
+            .filter((date): date is Date => date !== null)
+            .sort((left, right) => left.getTime() - right.getTime())[0] ?? null,
+        })),
+      })),
+    };
+  }
 
   async getPupilSend(schoolId: string, userId: string, pupilId: string) {
     await this.requireSendRole(schoolId, userId);
@@ -254,18 +394,19 @@ export class SupportService {
   }
 
   private async requireSendRole(schoolId: string, userId: string): Promise<void> {
-    const membership = await this.prisma.schoolMembership.findFirst({
-      where: {
+    try {
+      await requireAnySchoolPermission(
+        this.prisma,
         schoolId,
         userId,
-        status: "active",
-        membershipRoles: { some: { role: { code: { in: SEND_ROLE_CODES } } } },
-      },
-      select: { id: true },
-    });
-    if (!membership) {
-      await this.auditRead(schoolId, userId, null, "send.access_denied", {});
-      throw new ForbiddenException("SENCO or deputy SENCO authorization is required.");
+        ["send.manage"],
+        "SENCO or deputy SENCO authorization is required.",
+      );
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        await this.auditRead(schoolId, userId, null, "send.access_denied", {});
+      }
+      throw error;
     }
   }
 

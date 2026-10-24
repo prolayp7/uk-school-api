@@ -1,16 +1,40 @@
 import { Type } from "class-transformer";
 import {
   ArrayMaxSize,
+  ArrayNotEmpty,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsDateString,
+  IsInt,
   IsIn,
+  Matches,
+  Max,
   IsOptional,
   IsString,
   IsUUID,
+  Min,
   MaxLength,
   ValidateNested,
 } from "class-validator";
+
+export class ListSendPupilsQueryDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize = 50;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+}
 
 export class CreateSendTargetDto {
   @IsString()
@@ -248,12 +272,45 @@ export class CreateMedicationAdministrationDto {
 
   @IsOptional()
   @IsUUID()
+  scheduleId?: string;
+
+  @IsOptional()
+  @IsUUID()
   correctionOfId?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(500)
   correctionReason?: string;
+}
+
+export class CreateMedicationScheduleDto {
+  @IsUUID()
+  authorizationId!: string;
+
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  scheduledTime!: string;
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(7)
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(7, { each: true })
+  daysOfWeek!: number[];
+
+  @IsString()
+  @MaxLength(120)
+  doseInstructions!: string;
+
+  @IsDateString({ strict: true })
+  startsOn!: string;
+
+  @IsOptional()
+  @IsDateString({ strict: true })
+  endsOn?: string;
 }
 
 export class CreateHealthcarePlanDto {
@@ -268,6 +325,11 @@ export class CreateHealthcarePlanDto {
   @IsString()
   @MaxLength(10000)
   emergencyActions!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  emergencyLocation?: string;
 
   @IsDateString({ strict: true })
   startsOn!: string;

@@ -1,11 +1,11 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
+import { requireAnySchoolPermission } from "../auth/school-permissions";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateBehaviourIncidentDto,
@@ -334,20 +334,13 @@ export class BehaviourService {
   }
 
   private async requireStaffMember(schoolId: string, userId: string): Promise<void> {
-    const membership = await this.prisma.schoolMembership.findFirst({
-      where: {
-        schoolId,
-        userId,
-        status: "active",
-        membershipRoles: {
-          some: { role: { code: { notIn: ["PARENT", "STUDENT"] } } },
-        },
-      },
-      select: { id: true },
-    });
-    if (!membership) {
-      throw new ForbiddenException("Staff membership is required for behaviour records.");
-    }
+    await requireAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["behaviour.manage"],
+      "Staff membership is required for behaviour records.",
+    );
   }
 
   private async requirePupil(schoolId: string, pupilId: string): Promise<void> {

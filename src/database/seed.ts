@@ -103,6 +103,7 @@ const roleSpecs = [
   ["ATTENDANCE_OFFICER", "Attendance officer"],
   ["ADMISSIONS_OFFICER", "Admissions officer"],
   ["EXAMS_OFFICER", "Examinations officer"],
+  ["SCR_ADMIN", "Single Central Record administrator"],
   ["SUPPORT_STAFF", "Support staff"],
   ["PARENT", "Parent or carer"],
   ["STUDENT", "Student"],
@@ -114,6 +115,34 @@ const permissionSpecs = [
   ["school.members.manage", "Create and update school memberships"],
   ["school.roles.manage", "Manage school role assignments"],
   ["audit.read", "Read authorized audit events"],
+  ["school.structure.read", "View school year groups, classes and subjects"],
+  ["pupils.read", "View pupil records and school structure"],
+  ["pupils.manage", "Add, update and place pupils"],
+  ["attendance.read", "View registers, attendance records and reports"],
+  ["attendance.register", "Take registers for assigned classes"],
+  ["attendance.manage", "Manage school attendance and interventions"],
+  ["academic.read", "View classes, curriculum and timetables"],
+  ["academic.manage", "Manage curriculum and school timetables"],
+  ["exams.manage", "Manage assessments, exams and results"],
+  ["admissions.manage", "Manage pupil applications and admissions"],
+  ["finance.manage", "View and manage school finance records"],
+  ["census.manage", "View statutory census readiness checks"],
+  ["scr.manage", "View and manage restricted staff compliance records"],
+  ["safeguarding.report", "Submit a safeguarding concern"],
+  ["safeguarding.manage", "Review and manage safeguarding cases"],
+  ["behaviour.manage", "View and manage behaviour records"],
+  ["send.manage", "View and manage SEND support plans"],
+  ["medical.manage", "View and manage pupil medical records"],
+  ["calendar.read", "View the school calendar"],
+  ["calendar.manage", "Create and update school calendar events"],
+  ["calendar.publish", "Publish calendar events to the public website"],
+  ["documents.read", "Read staff and pupil documents"],
+  ["documents.manage", "Upload and manage school documents"],
+  ["communications.read", "Read school calendar, messages and documents"],
+  ["communications.manage", "Manage school calendar, messages and documents"],
+  ["notifications.manage", "View and retry failed school notifications"],
+  ["website.edit", "Edit school website content"],
+  ["website.publish", "Publish school website content"],
 ] as const;
 
 const staffSpecs = createStaffSpecs();
@@ -204,6 +233,7 @@ function parentNumber(index: number): string {
 }
 
 function studentName(index: number) {
+  if (index === 0) return { first: "Liam", last: "Turner" };
   return {
     first: firstNames[(index * 7 + Math.floor(index / firstNames.length)) % firstNames.length],
     last: lastNames[(index * 11 + Math.floor(index / lastNames.length)) % lastNames.length],
@@ -329,11 +359,89 @@ async function createRolesAndUsers(schoolId: string) {
 
   const permissionCodesByRole: Record<string, string[]> = {
     SUPER_ADMIN: permissionSpecs.map(([code]) => code),
-    HEADTEACHER: permissionSpecs.map(([code]) => code),
-    SLT: ["school.read", "school.members.read", "audit.read"],
-    ADMIN: ["school.read", "school.members.read", "school.members.manage"],
-    DSL: ["school.read"],
-    DEPUTY_DSL: ["school.read"],
+    HEADTEACHER: permissionSpecs
+      .filter(([code]) => code !== "school.roles.manage")
+      .map(([code]) => code),
+    SLT: [
+      "school.read", "school.members.read", "audit.read",
+      "school.structure.read", "pupils.read", "pupils.manage", "attendance.read",
+      "attendance.manage", "academic.read", "academic.manage", "exams.manage",
+      "admissions.manage", "finance.manage", "census.manage", "scr.manage",
+      "safeguarding.report", "behaviour.manage",
+      "calendar.read", "calendar.manage", "calendar.publish", "documents.read",
+      "documents.manage", "communications.read", "communications.manage",
+      "notifications.manage", "website.edit", "website.publish",
+    ],
+    ADMIN: [
+      "school.read", "school.members.read", "school.members.manage",
+      "school.structure.read", "pupils.read", "pupils.manage", "attendance.read",
+      "attendance.manage", "finance.manage", "safeguarding.report", "behaviour.manage",
+      "calendar.read", "calendar.manage", "calendar.publish", "documents.read",
+      "documents.manage", "communications.read", "communications.manage",
+      "notifications.manage", "website.edit", "website.publish",
+    ],
+    TEACHER: [
+      "school.read", "school.structure.read", "attendance.read", "attendance.register",
+      "academic.read", "safeguarding.report", "behaviour.manage", "calendar.read",
+      "calendar.manage", "documents.read", "documents.manage", "communications.read",
+      "communications.manage", "website.edit",
+    ],
+    DSL: [
+      "school.read", "school.structure.read", "pupils.read", "safeguarding.report",
+      "safeguarding.manage", "behaviour.manage", "calendar.read", "calendar.manage",
+      "documents.read", "documents.manage", "communications.read", "communications.manage",
+    ],
+    DEPUTY_DSL: [
+      "school.read", "school.structure.read", "pupils.read", "safeguarding.report",
+      "safeguarding.manage", "behaviour.manage", "calendar.read", "calendar.manage",
+      "documents.read", "documents.manage", "communications.read", "communications.manage",
+    ],
+    SAFEGUARDING: [
+      "school.read", "school.structure.read", "pupils.read", "safeguarding.report",
+      "behaviour.manage", "calendar.read", "calendar.manage", "documents.read",
+      "documents.manage", "communications.read", "communications.manage",
+    ],
+    SENCO: [
+      "school.read", "school.structure.read", "pupils.read", "send.manage", "behaviour.manage",
+      "calendar.read", "calendar.manage", "documents.read", "documents.manage",
+      "communications.read", "communications.manage",
+    ],
+    DEPUTY_SENCO: [
+      "school.read", "school.structure.read", "pupils.read", "send.manage", "behaviour.manage",
+      "calendar.read", "calendar.manage", "documents.read", "documents.manage",
+      "communications.read", "communications.manage",
+    ],
+    FINANCE: [
+      "school.read", "school.structure.read", "safeguarding.report", "behaviour.manage",
+      "finance.manage", "calendar.read", "calendar.manage", "communications.read",
+      "communications.manage",
+    ],
+    SCR_ADMIN: ["census.manage", "scr.manage"],
+    MEDICAL: [
+      "school.read", "school.structure.read", "pupils.read", "medical.manage", "behaviour.manage",
+      "calendar.read", "calendar.manage", "documents.read", "documents.manage",
+      "communications.read", "communications.manage",
+    ],
+    ATTENDANCE_OFFICER: [
+      "school.read", "school.structure.read", "pupils.read", "attendance.read",
+      "attendance.manage", "behaviour.manage", "calendar.read", "calendar.manage",
+      "documents.read", "documents.manage", "communications.read", "communications.manage",
+    ],
+    ADMISSIONS_OFFICER: [
+      "school.read", "school.structure.read", "pupils.read", "pupils.manage",
+      "admissions.manage", "behaviour.manage", "calendar.read", "calendar.manage",
+      "documents.read", "documents.manage", "communications.read", "communications.manage",
+    ],
+    EXAMS_OFFICER: [
+      "school.read", "school.structure.read", "pupils.read", "academic.read",
+      "exams.manage", "behaviour.manage", "calendar.read", "calendar.manage",
+      "documents.read", "documents.manage", "communications.read", "communications.manage",
+    ],
+    SUPPORT_STAFF: [
+      "school.read", "school.structure.read", "pupils.read", "behaviour.manage",
+      "calendar.read", "calendar.manage", "documents.read", "documents.manage",
+      "communications.read", "communications.manage",
+    ],
   };
   const rolePermissions = Object.entries(permissionCodesByRole).flatMap(([roleCode, codes]) =>
     codes.map((permissionCode) => ({ schoolId, roleId: roleByCode.get(roleCode)!.id, permissionCode })),
@@ -440,6 +548,12 @@ async function createPeopleAndProfiles(schoolId: string, academicYearId: string,
   await insertBatches(allPeople, (batch) => prisma.person.createMany({ data: batch, skipDuplicates: true }));
   const people = await prisma.person.findMany({ where: { schoolId }, select: { id: true, seedKey: true } });
   const personIdBySeedKey = new Map(people.map((person) => [person.seedKey!, person.id]));
+  const demoPupilPersonId = personIdBySeedKey.get("student:STU0001");
+  if (!demoPupilPersonId) throw new Error("Medical demo pupil person is missing from the seed.");
+  await prisma.person.updateMany({
+    where: { schoolId, id: demoPupilPersonId },
+    data: { legalFirstName: "Liam", lastName: "Turner", preferredName: null },
+  });
 
   await insertBatches(
     staffSpecs.map((staff, index) => ({
@@ -731,6 +845,205 @@ async function createBehaviourAndSupport(schoolId: string, pupils: { id: string 
     (batch) => prisma.pupilMedicalCondition.createMany({ data: batch, skipDuplicates: true }));
 }
 
+async function createMedicalDemoData(schoolId: string, userId: string, pupilId: string): Promise<void> {
+  const today = dateOnly(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, new Date().getUTCDate());
+  const endsOn = new Date(today.getTime() + 365 * 86400000);
+  const guardian = await prisma.pupilContact.findFirst({
+    where: { schoolId, pupilId, isPrimary: true },
+    select: { guardianPersonId: true },
+  });
+  if (!guardian) throw new Error("Medical demo pupil is missing a primary guardian contact.");
+
+  const conditionSpecs = [
+    {
+      code: "ASTHMA",
+      severity: "moderate",
+      careNote: "Follow the current asthma plan; keep the labelled reliever inhaler accessible.",
+      parentVisible: true,
+    },
+    {
+      code: "FOOD_ALLERGY",
+      severity: "moderate",
+      careNote: "Avoid peanut and tree nut exposure; follow the healthcare plan if a reaction is suspected.",
+      parentVisible: true,
+    },
+  ] as const;
+  for (const spec of conditionSpecs) {
+    const condition = await prisma.medicalCondition.findUnique({
+      where: { schoolId_code: { schoolId, code: spec.code } },
+      select: { id: true },
+    });
+    if (!condition) throw new Error(`Medical demo condition ${spec.code} is missing from the catalog.`);
+    await prisma.pupilMedicalCondition.upsert({
+      where: {
+        schoolId_pupilId_medicalConditionId: {
+          schoolId,
+          pupilId,
+          medicalConditionId: condition.id,
+        },
+      },
+      create: {
+        schoolId,
+        pupilId,
+        medicalConditionId: condition.id,
+        severity: spec.severity,
+        careNote: spec.careNote,
+        parentVisible: spec.parentVisible,
+        startsOn: dateOnly(2020, 3, 12),
+      },
+      update: {},
+    });
+  }
+
+  const medicationSpecs = [
+    {
+      code: "SALBUTAMOL-100",
+      name: "Salbutamol",
+      strength: "100 micrograms",
+      form: "Inhaler",
+      dosageInstructions: "2 puffs as required; use a spacer and follow the current asthma plan.",
+    },
+    {
+      code: "CETIRIZINE-10",
+      name: "Cetirizine",
+      strength: "10 mg",
+      form: "Tablet",
+      dosageInstructions: "1 tablet once daily as recorded in the fictional development care plan.",
+    },
+  ] as const;
+  const authorizations: Array<{ id: string; medicationName: string }> = [];
+  for (const spec of medicationSpecs) {
+    const medication = await prisma.medication.upsert({
+      where: { schoolId_code: { schoolId, code: spec.code } },
+      create: { schoolId, code: spec.code, name: spec.name, strength: spec.strength, form: spec.form },
+      update: { name: spec.name, strength: spec.strength, form: spec.form },
+    });
+    let authorization = await prisma.medicationAuthorization.findFirst({
+      where: { schoolId, pupilId, medicationId: medication.id },
+      select: { id: true },
+    });
+    if (!authorization) {
+      authorization = await prisma.medicationAuthorization.create({
+        data: {
+          schoolId,
+          pupilId,
+          medicationId: medication.id,
+          guardianPersonId: guardian.guardianPersonId,
+          authorizedByUserId: userId,
+          dosageInstructions: spec.dosageInstructions,
+          startsOn: today,
+          endsOn,
+          status: "active",
+        },
+        select: { id: true },
+      });
+    } else {
+      authorization = await prisma.medicationAuthorization.update({
+        where: { id: authorization.id },
+        data: {
+          guardianPersonId: guardian.guardianPersonId,
+          authorizedByUserId: userId,
+          dosageInstructions: spec.dosageInstructions,
+          startsOn: today,
+          endsOn,
+          status: "active",
+        },
+        select: { id: true },
+      });
+    }
+    authorizations.push({ id: authorization.id, medicationName: spec.name });
+  }
+
+  const scheduledAuthorization = authorizations[1];
+  if (!scheduledAuthorization) throw new Error("Medical demo pupil is missing the scheduled medication authorization.");
+  let schedule = await prisma.medicationSchedule.findFirst({
+    where: { schoolId, pupilId, authorizationId: scheduledAuthorization.id },
+    select: { id: true },
+  });
+  if (!schedule) {
+    schedule = await prisma.medicationSchedule.create({
+      data: {
+        schoolId,
+        pupilId,
+        authorizationId: scheduledAuthorization.id,
+        scheduledTime: "10:48",
+        daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+        doseInstructions: "1 tablet once daily as recorded in the fictional development care plan.",
+        startsOn: today,
+        endsOn,
+      },
+      select: { id: true },
+    });
+  }
+
+  for (const [index, authorization] of authorizations.entries()) {
+    const administeredAt = new Date(today.getTime() + (9 * 60 + 18 + index * 90) * 60000);
+    const existingAdministration = await prisma.medicationAdministration.findFirst({
+      where: { schoolId, pupilId, authorizationId: authorization.id, administeredAt },
+      select: { id: true },
+    });
+    if (!existingAdministration) {
+      await prisma.medicationAdministration.create({
+        data: {
+          schoolId,
+          pupilId,
+          authorizationId: authorization.id,
+          ...(index === 1 ? { scheduleId: schedule.id } : {}),
+          administeredByUserId: userId,
+          administeredAt,
+          doseGiven: index === 0 ? "2 puffs" : "1 tablet",
+          status: "administered",
+          note: "Fictional development-seed administration record.",
+        },
+      });
+    }
+  }
+
+  const plan = await prisma.healthcarePlan.findFirst({
+    where: { schoolId, pupilId, title: "Asthma and allergy care plan" },
+    select: { id: true },
+  });
+  if (!plan) {
+    await prisma.healthcarePlan.create({
+      data: {
+        schoolId,
+        pupilId,
+        title: "Asthma and allergy care plan",
+        instructions: "Keep the pupil's labelled reliever inhaler accessible. Avoid known food allergens and follow the current signed medication authorisations.",
+        emergencyActions: "Follow the school's emergency procedure and call emergency services if symptoms are severe or worsening.",
+        emergencyLocation: "Room Locker A + 10B PE Kit",
+        startsOn: today,
+        reviewDue: new Date(today.getTime() + 14 * 86400000),
+        status: "active",
+      },
+    });
+  } else {
+    await prisma.healthcarePlan.updateMany({
+      where: { id: plan.id, emergencyLocation: null },
+      data: { emergencyLocation: "Room Locker A + 10B PE Kit" },
+    });
+  }
+
+  const incident = await prisma.medicalIncident.findFirst({
+    where: { schoolId, pupilId, incidentType: "observation", details: "Breathing symptoms reported during PE." },
+    select: { id: true },
+  });
+  if (!incident) {
+    await prisma.medicalIncident.create({
+      data: {
+        schoolId,
+        pupilId,
+        incidentType: "observation",
+        details: "Breathing symptoms reported during PE.",
+        actionTaken: "Pupil was assessed by medical staff and the current care plan was followed.",
+        followUpRequired: true,
+        occurredAt: new Date(today.getTime() + 9 * 3600000),
+        reportedByUserId: userId,
+      },
+    });
+  }
+}
+
 async function validateSeed(schoolId: string): Promise<void> {
   const [schools, academicYears, terms, yearGroups, forms, departments, subjects, staff, teachers, pupils, parents, users, classes, classMemberships, attendance, behaviourIncidents, behaviourRewards, send, medical] = await Promise.all([
     prisma.school.count({ where: { id: schoolId } }),
@@ -835,6 +1148,11 @@ async function main(): Promise<void> {
   await createAttendance(school.id, profiles.pupils.map((pupil) => ({ id: pupil.id, admissionNumber: pupil.admissionNumber })));
   console.log("[SEED] Creating behaviour, SEND, and medical records...");
   await createBehaviourAndSupport(school.id, profiles.pupils.map((pupil) => ({ id: pupil.id })));
+  console.log("[SEED] Creating the Liam Turner medical workflow sample...");
+  const superAdmin = userByEmail.get(SUPER_ADMIN_EMAIL);
+  const demoPupil = profiles.pupils.find((pupil) => pupil.admissionNumber === "ADM0001");
+  if (!superAdmin || !demoPupil) throw new Error("Medical demo seed requires the seeded administrator and ADM0001 pupil.");
+  await createMedicalDemoData(school.id, superAdmin.id, demoPupil.id);
   console.log("[SEED] Running validation...");
   await validateSeed(school.id);
   console.log("[SEED] Complete. Development account password is documented in docs/SEED_DATA.md.");

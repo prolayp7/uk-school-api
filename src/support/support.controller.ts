@@ -7,11 +7,16 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { AuthGuard, SchoolAccessGuard } from "../auth/auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
-import { CreateSendTargetReviewDto, CreateSupportPlanDto } from "./support.dto";
+import {
+  CreateSendTargetReviewDto,
+  CreateSupportPlanDto,
+  ListSendPupilsQueryDto,
+} from "./support.dto";
 import { SupportService } from "./support.service";
 
 type AuthenticatedUser = { id: string; schoolIds: string[] };
@@ -29,6 +34,19 @@ function resolveSchoolId(user: AuthenticatedUser, requestedSchoolId?: string): s
 @UseGuards(AuthGuard, SchoolAccessGuard)
 export class SupportController {
   constructor(private readonly supportService: SupportService) {}
+
+  @Get("erp/send/pupils")
+  listSchoolSendPupils(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Query() query: ListSendPupilsQueryDto,
+  ) {
+    return this.supportService.listSchoolSendPupils(
+      resolveSchoolId(user, schoolId),
+      user.id,
+      query,
+    );
+  }
 
   @Get("erp/pupils/:pupilId/send")
   getPupilSend(

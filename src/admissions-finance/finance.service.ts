@@ -8,15 +8,16 @@ import {
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type Stripe from "stripe";
+import { requireAnySchoolPermission } from "../auth/school-permissions";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateChargeDto,
   CreateInvoiceDto,
   CreateRefundDto,
+  FinanceListQueryDto,
+  UpdateChargeDto,
 } from "./admissions-finance.dto";
 import { PaymentProviderService } from "./payment-provider.service";
-
-const FINANCE_ROLES = ["FINANCE", "HEADTEACHER", "SLT", "ADMIN"];
 
 function decimal(value: number): Prisma.Decimal {
   return new Prisma.Decimal(value.toFixed(2));
@@ -59,6 +60,391 @@ export class FinanceService {
       });
       return charge;
     });
+  }
+
+  async listCharges(schoolId: string, userId: string, query: FinanceListQueryDto) {
+    await this.requireFinanceRole(schoolId, userId);
+    const search = query.search?.trim();
+    const where: Prisma.ChargeWhereInput = {
+      schoolId,
+      ...(search
+        ? {
+            OR: [
+              { code: { contains: search, mode: "insensitive" } },
+              { description: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.charge.findMany({
+        where,
+        orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          code: true,
+          description: true,
+          amount: true,
+          currency: true,
+          isActive: true,
+          pupilId: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.charge.count({ where }),
+    ]);
+    await this.auditRead(schoolId, userId, null, "finance.charges.viewed", { resultCount: items.length });
+    return { items, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
+  }
+
+  async updateCharge(schoolId: string, userId: string, chargeId: string, input: UpdateChargeDto) {
+    await this.requireFinanceRole(schoolId, userId);
+    const current = await this.prisma.charge.findFirst({
+      where: { schoolId, id: chargeId },
+      select: { id: true },
+    });
+    if (!current) throw new NotFoundException("Charge not found.");
+
+    const data: Prisma.ChargeUpdateInput = {};
+    if (input.code !== undefined) {
+      const code = input.code.trim().toUpperCase();
+      if (!code) throw new BadRequestException("Charge code cannot be empty.");
+      data.code = code;
+    }
+    if (input.description !== undefined) {
+      const description = input.description.trim();
+      if (!description) throw new BadRequestException("Charge description cannot be empty.");
+      data.description = description;
+    }
+    if (input.amount !== undefined) data.amount = decimal(input.amount);
+    if (input.status !== undefined) data.isActive = input.status === "active";
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException("Provide at least one charge field to update.");
+    }
+
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const updated = await transaction.charge.update({
+          where: { schoolId_id: { schoolId, id: chargeId } },
+          data,
+        });
+        await transaction.auditEvent.create({
+          data: {
+            schoolId,
+            actorUserId: userId,
+            action: "finance.charge.updated",
+            entityType: "charge",
+            entityId: chargeId,
+            metadata: { changedFields: Object.keys(data) },
+          },
+        });
+        return updated;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException("A charge with this code already exists.");
+      }
+      throw error;
+    }
+  }
+
+  async listInvoiceRecipients(schoolId: string, userId: string, query: FinanceListQueryDto) {
+    await this.requireFinanceRole(schoolId, userId);
+    const search = query.search?.trim();
+    const memberships = await this.prisma.schoolMembership.findMany({
+      where: {
+        schoolId,
+        status: "active",
+        membershipRoles: { some: { role: { code: "PARENT" } } },
+        ...(search
+          ? {
+              user: {
+                OR: [
+                  { emailNormalized: { contains: search, mode: "insensitive" } },
+                  {
+                    persons: {
+                      some: {
+                        schoolId,
+                        OR: [
+                          { legalFirstName: { contains: search, mode: "insensitive" } },
+                          { preferredName: { contains: search, mode: "insensitive" } },
+                          { lastName: { contains: search, mode: "insensitive" } },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            }
+          : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (query.page - 1) * query.pageSize,
+      take: query.pageSize,
+      select: {
+        userId: true,
+        user: {
+          select: {
+            emailNormalized: true,
+            persons: {
+              where: { schoolId },
+              select: { legalFirstName: true, preferredName: true, lastName: true },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+    const total = await this.prisma.schoolMembership.count({
+      where: {
+        schoolId,
+        status: "active",
+        membershipRoles: { some: { role: { code: "PARENT" } } },
+        ...(search
+          ? {
+              user: {
+                OR: [
+                  { emailNormalized: { contains: search, mode: "insensitive" } },
+                  {
+                    persons: {
+                      some: {
+                        schoolId,
+                        OR: [
+                          { legalFirstName: { contains: search, mode: "insensitive" } },
+                          { preferredName: { contains: search, mode: "insensitive" } },
+                          { lastName: { contains: search, mode: "insensitive" } },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            }
+          : {}),
+      },
+    });
+    await this.auditRead(schoolId, userId, null, "finance.invoice_recipients.viewed", { resultCount: memberships.length });
+    return {
+      items: memberships.map(({ userId: parentUserId, user }) => {
+        const person = user.persons[0];
+        return {
+          userId: parentUserId,
+          email: user.emailNormalized,
+          name: person
+            ? `${person.preferredName || person.legalFirstName} ${person.lastName}`.trim()
+            : user.emailNormalized,
+        };
+      }),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+      totalPages: Math.ceil(total / query.pageSize),
+    };
+  }
+
+  async listInvoices(schoolId: string, userId: string, query: FinanceListQueryDto) {
+    await this.requireFinanceRole(schoolId, userId);
+    const search = query.search?.trim();
+    const where: Prisma.InvoiceWhereInput = {
+      schoolId,
+      ...(query.invoiceStatus ? { status: query.invoiceStatus } : {}),
+      ...(search
+        ? {
+            OR: [
+              { reference: { contains: search, mode: "insensitive" } },
+              { parent: { emailNormalized: { contains: search, mode: "insensitive" } } },
+              {
+                parent: {
+                  persons: {
+                    some: {
+                      schoolId,
+                      OR: [
+                        { legalFirstName: { contains: search, mode: "insensitive" } },
+                        { preferredName: { contains: search, mode: "insensitive" } },
+                        { lastName: { contains: search, mode: "insensitive" } },
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+    const [invoices, total] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          reference: true,
+          status: true,
+          totalAmount: true,
+          currency: true,
+          dueAt: true,
+          issuedAt: true,
+          createdAt: true,
+          parent: {
+            select: {
+              emailNormalized: true,
+              persons: {
+                where: { schoolId },
+                select: { legalFirstName: true, preferredName: true, lastName: true },
+                take: 1,
+              },
+            },
+          },
+          lines: {
+            select: { id: true, description: true, quantity: true, unitAmount: true, lineAmount: true },
+          },
+          payments: {
+            where: { status: "succeeded" },
+            select: {
+              amount: true,
+              refunds: { where: { status: "succeeded" }, select: { amount: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.invoice.count({ where }),
+    ]);
+    const items = invoices.map((invoice) => {
+      const paid = invoice.payments.reduce(
+        (totalPaid, payment) => totalPaid.add(
+          payment.amount.sub(
+            payment.refunds.reduce((refunded, refund) => refunded.add(refund.amount), new Prisma.Decimal(0)),
+          ),
+        ),
+        new Prisma.Decimal(0),
+      );
+      const person = invoice.parent.persons[0];
+      return {
+        id: invoice.id,
+        reference: invoice.reference,
+        status: invoice.status,
+        totalAmount: invoice.totalAmount,
+        currency: invoice.currency,
+        dueAt: invoice.dueAt,
+        issuedAt: invoice.issuedAt,
+        createdAt: invoice.createdAt,
+        recipient: {
+          name: person
+            ? `${person.preferredName || person.legalFirstName} ${person.lastName}`.trim()
+            : invoice.parent.emailNormalized,
+          email: invoice.parent.emailNormalized,
+        },
+        lines: invoice.lines,
+        paid,
+        outstanding: invoice.totalAmount.sub(paid),
+      };
+    });
+    await this.auditRead(schoolId, userId, null, "finance.invoices.viewed", { resultCount: items.length });
+    return { items, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
+  }
+
+  async getInvoice(schoolId: string, userId: string, invoiceId: string) {
+    await this.requireFinanceRole(schoolId, userId);
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { schoolId, id: invoiceId },
+      select: {
+        id: true,
+        reference: true,
+        status: true,
+        totalAmount: true,
+        currency: true,
+        dueAt: true,
+        issuedAt: true,
+        createdAt: true,
+        parent: {
+          select: {
+            emailNormalized: true,
+            persons: {
+              where: { schoolId },
+              select: { legalFirstName: true, preferredName: true, lastName: true },
+              take: 1,
+            },
+          },
+        },
+        lines: { select: { id: true, description: true, quantity: true, unitAmount: true, lineAmount: true } },
+        payments: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            amount: true,
+            currency: true,
+            status: true,
+            createdAt: true,
+            refunds: {
+              orderBy: { createdAt: "desc" },
+              select: { id: true, amount: true, reason: true, status: true, createdAt: true },
+            },
+          },
+        },
+      },
+    });
+    if (!invoice) throw new NotFoundException("Invoice not found.");
+    await this.auditRead(schoolId, userId, invoiceId, "finance.invoice.viewed", {});
+    const person = invoice.parent.persons[0];
+    return {
+      ...invoice,
+      recipient: {
+        name: person
+          ? `${person.preferredName || person.legalFirstName} ${person.lastName}`.trim()
+          : invoice.parent.emailNormalized,
+        email: invoice.parent.emailNormalized,
+      },
+      parent: undefined,
+    };
+  }
+
+  async listPayments(schoolId: string, userId: string, query: FinanceListQueryDto) {
+    await this.requireFinanceRole(schoolId, userId);
+    const search = query.search?.trim();
+    const where: Prisma.PaymentWhereInput = {
+      schoolId,
+      ...(query.paymentStatus ? { status: query.paymentStatus } : {}),
+      ...(search
+        ? {
+            OR: [
+              { invoice: { reference: { contains: search, mode: "insensitive" } } },
+              { invoice: { parent: { emailNormalized: { contains: search, mode: "insensitive" } } } },
+            ],
+          }
+        : {}),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.payment.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          status: true,
+          createdAt: true,
+          invoice: {
+            select: {
+              id: true,
+              reference: true,
+              parent: { select: { emailNormalized: true } },
+            },
+          },
+          refunds: {
+            orderBy: { createdAt: "desc" },
+            select: { id: true, amount: true, reason: true, status: true, createdAt: true },
+          },
+        },
+      }),
+      this.prisma.payment.count({ where }),
+    ]);
+    await this.auditRead(schoolId, userId, null, "finance.payments.viewed", { resultCount: items.length });
+    return { items, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
   }
 
   async createInvoice(schoolId: string, userId: string, input: CreateInvoiceDto) {
@@ -502,11 +888,13 @@ export class FinanceService {
   }
 
   private async requireFinanceRole(schoolId: string, userId: string): Promise<void> {
-    const membership = await this.prisma.schoolMembership.findFirst({
-      where: { schoolId, userId, status: "active", membershipRoles: { some: { role: { code: { in: FINANCE_ROLES } } } } },
-      select: { id: true },
-    });
-    if (!membership) throw new ForbiddenException("Finance staff authorization is required.");
+    await requireAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["finance.manage"],
+      "Finance staff authorization is required.",
+    );
   }
 
   private auditRead(schoolId: string, userId: string, entityId: string | null, action: string, metadata: object) {

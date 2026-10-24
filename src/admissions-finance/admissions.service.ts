@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { requireAnySchoolPermission } from "../auth/school-permissions";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateApplicationDto,
@@ -14,8 +15,6 @@ import {
   RequestApplicationDocumentDto,
   UpdateApplicationStatusDto,
 } from "./admissions-finance.dto";
-
-const ADMISSIONS_ROLES = ["ADMISSIONS_OFFICER", "HEADTEACHER", "SLT"];
 
 const STAFF_TRANSITIONS: Record<string, string[]> = {
   submitted: ["reviewing", "documents_requested", "waitlisted", "declined", "withdrawn"],
@@ -414,15 +413,12 @@ export class AdmissionsService {
   }
 
   private async requireAdmissionsRole(schoolId: string, userId: string): Promise<void> {
-    const membership = await this.prisma.schoolMembership.findFirst({
-      where: {
-        schoolId,
-        userId,
-        status: "active",
-        membershipRoles: { some: { role: { code: { in: ADMISSIONS_ROLES } } } },
-      },
-      select: { id: true },
-    });
-    if (!membership) throw new ForbiddenException("Admissions officer or leadership access is required.");
+    await requireAnySchoolPermission(
+      this.prisma,
+      schoolId,
+      userId,
+      ["admissions.manage"],
+      "Admissions officer or leadership access is required.",
+    );
   }
 }

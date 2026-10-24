@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { ForbiddenException } from "@nestjs/common";
 import { GUARDS_METADATA } from "@nestjs/common/constants";
 import { AuthGuard, SchoolAccessGuard } from "../auth/auth.guard";
+import { schoolMembershipRole } from "../auth/school-permissions.test-utils";
 import type { PrismaService } from "../prisma/prisma.service";
 import { ParentSupportController, SupportController } from "./support.controller";
 import { SupportService } from "./support.service";
@@ -32,6 +33,88 @@ describe("SupportService", () => {
     expect(profileFindUnique).not.toHaveBeenCalled();
   });
 
+  it("lists school-scoped enrolled pupils with SEND summaries and audits the register read", async () => {
+    const pupil = {
+      id: "pupil-1",
+      admissionNumber: "A001",
+      person: { legalFirstName: "Ava", preferredName: null, lastName: "Jones" },
+      enrolments: [{ yearGroup: { code: "Y5", name: "Year 5" }, form: { code: "5A" } }],
+      sendProfile: {
+        status: "sen_support",
+        primaryNeed: "Communication",
+        supportLevel: "targeted",
+        reviewDue: new Date("2026-10-01T00:00:00.000Z"),
+      },
+      supportPlans: [{
+        id: "plan-1",
+        title: "Communication plan",
+        startsOn: new Date("2026-09-01T00:00:00.000Z"),
+        endsOn: null,
+        targets: [{ id: "target-1", reviewDue: new Date("2026-11-01T00:00:00.000Z") }],
+      }],
+    };
+    const pupilFindMany = jest.fn().mockResolvedValue([pupil]);
+    const pupilCount = jest.fn()
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(12)
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(3);
+    const planCount = jest.fn().mockResolvedValue(6);
+    const auditCreate = jest.fn().mockResolvedValue({});
+    const service = new SupportService({
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({
+        membershipRoles: [schoolMembershipRole("SENCO")],
+      }) },
+      pupilProfile: { findMany: pupilFindMany, count: pupilCount },
+      sendProfile: { count: jest.fn().mockResolvedValueOnce(4).mockResolvedValueOnce(2).mockResolvedValueOnce(3) },
+      supportPlan: { count: planCount },
+      auditEvent: { create: auditCreate },
+    } as unknown as PrismaService);
+
+    const result = await service.listSchoolSendPupils("school-1", "senco-1", {
+      page: 1,
+      pageSize: 50,
+      search: "Ava",
+    });
+
+    expect(pupilFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ schoolId: "school-1", status: "enrolled" }),
+      take: 50,
+    }));
+    expect(result).toMatchObject({
+      page: 1,
+      pageSize: 50,
+      total: 1,
+      totalPages: 1,
+      overview: {
+        pupilCount: 12,
+        senSupportCount: 4,
+        ehcpCount: 2,
+        reviewsDueCount: 3,
+        activePlanCount: 6,
+      },
+      items: [{
+        pupilId: "pupil-1",
+        name: "Ava Jones",
+        yearGroup: "Year 5",
+        form: "5A",
+        profile: { status: "sen_support" },
+        activePlans: [{
+          id: "plan-1",
+          targetCount: 1,
+          nextReviewDue: new Date("2026-11-01T00:00:00.000Z"),
+        }],
+      }],
+    });
+    expect(auditCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        action: "send.school_register.viewed",
+        metadata: expect.objectContaining({ page: 1, searched: true }),
+      }),
+    }));
+  });
+
   it("creates a SEND profile and plan atomically for a newly identified pupil", async () => {
     const sendProfileUpsert = jest.fn().mockResolvedValue({ status: "ehcp" });
     const supportPlanCreate = jest.fn().mockResolvedValue({ id: "plan-1" });
@@ -45,7 +128,10 @@ describe("SupportService", () => {
       auditEvent: { create: auditCreate },
     };
     const service = new SupportService({
-      schoolMembership: { findFirst: jest.fn().mockResolvedValue({ id: "senco-membership" }) },
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({
+        membershipRoles: [schoolMembershipRole("SENCO")],
+      }) },
+      auditEvent: { create: auditCreate },
       pupilProfile: { findFirst: jest.fn().mockResolvedValue({ id: "pupil-1" }) },
       $transaction: jest.fn((callback: (tx: typeof transaction) => unknown) => callback(transaction)),
     } as unknown as PrismaService);

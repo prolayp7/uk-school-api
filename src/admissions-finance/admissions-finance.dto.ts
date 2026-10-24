@@ -105,6 +105,56 @@ export class CreateChargeDto {
   currency?: string;
 }
 
+export class UpdateChargeDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  description?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  amount?: number;
+
+  @IsOptional()
+  @IsIn(["active", "inactive"])
+  status?: "active" | "inactive";
+}
+
+export class FinanceListQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize = 25;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @IsOptional()
+  @IsIn(["draft", "issued", "partially_paid", "paid", "overdue", "void"])
+  invoiceStatus?: string;
+
+  @IsOptional()
+  @IsIn(["pending", "succeeded", "failed", "canceled"])
+  paymentStatus?: string;
+}
+
 export class InvoiceLineDto {
   @IsOptional()
   @IsUUID()

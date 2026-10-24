@@ -1,6 +1,7 @@
 import { ForbiddenException } from "@nestjs/common";
 import sharp from "sharp";
 import type { AuthService } from "../auth/auth.service";
+import { schoolMembershipRole } from "../auth/school-permissions.test-utils";
 import { FileStorageService } from "../common/file-storage.service";
 import type { PrismaService } from "../prisma/prisma.service";
 import { ParentsService } from "./parents.service";
@@ -41,6 +42,16 @@ describe("ParentsService", () => {
       auditEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
+      schoolMembership: {
+        findFirst: jest.fn().mockImplementation(({ where }: { where: { userId: string } }) => ({
+          membershipRoles: [
+            schoolMembershipRole(
+              where.userId === "staff-2" ? "TEACHER" : "SUPER_ADMIN",
+              where.userId === "staff-2" ? [] : undefined,
+            ),
+          ],
+        })),
+      },
       parentCarerProfile: { findFirst: jest.fn().mockResolvedValue(profile) },
       user: { findUnique: jest.fn().mockResolvedValue({ emailNormalized: "parent001@example.test", status: "active" }) },
       auditEvent: { create: jest.fn().mockResolvedValue({}) },
@@ -158,7 +169,10 @@ describe("ParentsService", () => {
   });
 
   it("rejects portal password updates from non-super-admin users", async () => {
-    const { service, authService } = setup();
+    const { service, authService, prisma } = setup();
+    (prisma.schoolMembership.findFirst as jest.Mock).mockResolvedValue({
+      membershipRoles: [schoolMembershipRole("ADMIN")],
+    });
 
     await expect(service.updatePortalPassword(
       "school-1",

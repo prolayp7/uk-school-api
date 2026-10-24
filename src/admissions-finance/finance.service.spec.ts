@@ -1,5 +1,6 @@
 import { ForbiddenException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { schoolMembershipRole } from "../auth/school-permissions.test-utils";
 import type { PrismaService } from "../prisma/prisma.service";
 jest.mock("./payment-provider.service", () => ({
   PaymentProviderService: class PaymentProviderService {},
@@ -17,7 +18,9 @@ describe("FinanceService", () => {
       auditEvent: { create: auditCreate },
     };
     const service = new FinanceService({
-      schoolMembership: { findFirst: jest.fn().mockResolvedValue({ id: "finance-membership" }) },
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({
+        membershipRoles: [schoolMembershipRole("FINANCE")],
+      }) },
       $transaction: jest.fn((callback: (tx: typeof transaction) => unknown) => callback(transaction)),
     } as unknown as PrismaService, {} as PaymentProviderService);
 
@@ -55,7 +58,7 @@ describe("FinanceService", () => {
   it("requires an exact parent link for application-related invoices", async () => {
     const transaction = jest.fn();
     const membershipFindFirst = jest.fn()
-      .mockResolvedValueOnce({ id: "finance-membership" })
+      .mockResolvedValueOnce({ membershipRoles: [schoolMembershipRole("FINANCE")] })
       .mockResolvedValueOnce({ id: "parent-membership" });
     const service = new FinanceService({
       schoolMembership: { findFirst: membershipFindFirst },
@@ -70,6 +73,54 @@ describe("FinanceService", () => {
     })).rejects.toThrow("Invoice application must be linked to the selected parent.");
 
     expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("lists school-scoped invoices with refunded amounts removed from the balance", async () => {
+    const invoiceFindMany = jest.fn().mockResolvedValue([{
+      id: "invoice-1",
+      reference: "INV-1",
+      status: "partially_paid",
+      totalAmount: new Prisma.Decimal("12.00"),
+      currency: "GBP",
+      dueAt: null,
+      issuedAt: new Date("2026-10-01T00:00:00.000Z"),
+      createdAt: new Date("2026-10-01T00:00:00.000Z"),
+      parent: { emailNormalized: "parent@example.test", persons: [] },
+      lines: [],
+      payments: [{
+        amount: new Prisma.Decimal("10.00"),
+        refunds: [{ amount: new Prisma.Decimal("2.00") }],
+      }],
+    }]);
+    const membershipFindFirst = jest.fn().mockResolvedValue({
+      membershipRoles: [schoolMembershipRole("FINANCE")],
+    });
+    const auditCreate = jest.fn().mockResolvedValue({});
+    const service = new FinanceService({
+      schoolMembership: { findFirst: membershipFindFirst },
+      invoice: { findMany: invoiceFindMany, count: jest.fn().mockResolvedValue(1) },
+      auditEvent: { create: auditCreate },
+    } as unknown as PrismaService, {} as PaymentProviderService);
+
+    const result = await service.listInvoices("school-1", "finance-1", {
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(invoiceFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { schoolId: "school-1" },
+      skip: 0,
+      take: 25,
+    }));
+    expect(result.items[0]).toMatchObject({
+      id: "invoice-1",
+      paid: new Prisma.Decimal("8.00"),
+      outstanding: new Prisma.Decimal("4.00"),
+      recipient: { email: "parent@example.test" },
+    });
+    expect(auditCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: "finance.invoices.viewed" }),
+    }));
   });
 
   it("stores a signature-verified event hash and reconciles payment/invoice status", async () => {
@@ -124,7 +175,9 @@ describe("FinanceService", () => {
     const existingRefund = { id: "refund-1", status: "pending" };
     const createRefund = jest.fn();
     const service = new FinanceService({
-      schoolMembership: { findFirst: jest.fn().mockResolvedValue({ id: "finance-membership" }) },
+      schoolMembership: { findFirst: jest.fn().mockResolvedValue({
+        membershipRoles: [schoolMembershipRole("FINANCE")],
+      }) },
       refund: { findUnique: jest.fn().mockResolvedValue(existingRefund) },
     } as unknown as PrismaService, { createRefund } as unknown as PaymentProviderService);
 

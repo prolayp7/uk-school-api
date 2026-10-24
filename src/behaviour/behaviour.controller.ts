@@ -113,6 +113,19 @@ export class SafeguardingController {
     return this.safeguardingService.listCases(resolveSchoolId(user, schoolId), user.id);
   }
 
+  @Get("cases/:caseId/access-options")
+  listCaseAccessOptions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-school-id") schoolId: string | undefined,
+    @Param("caseId", ParseUUIDPipe) caseId: string,
+  ) {
+    return this.safeguardingService.listCaseAccessOptions(
+      resolveSchoolId(user, schoolId),
+      user.id,
+      caseId,
+    );
+  }
+
   @Post("concerns")
   submitConcern(
     @CurrentUser() user: AuthenticatedUser,

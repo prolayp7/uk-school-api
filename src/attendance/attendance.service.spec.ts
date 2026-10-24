@@ -4,6 +4,7 @@ import {
 } from "@nestjs/common";
 import type { PrismaService } from "../prisma/prisma.service";
 import { AttendanceService } from "./attendance.service";
+import { schoolMembershipRole } from "../auth/school-permissions.test-utils";
 
 describe("AttendanceService", () => {
   it("creates a session idempotently using its school/date/type key", async () => {
@@ -11,7 +12,7 @@ describe("AttendanceService", () => {
     const service = new AttendanceService({
       attendanceSession: { upsert },
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "ATTENDANCE_OFFICER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("ATTENDANCE_OFFICER")] }),
       },
     } as unknown as PrismaService);
 
@@ -39,7 +40,7 @@ describe("AttendanceService", () => {
       classGroup: { findFirst: jest.fn().mockResolvedValue({ id: "class-1" }) },
       attendanceSession: { upsert },
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "ATTENDANCE_OFFICER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("ATTENDANCE_OFFICER")] }),
       },
     } as unknown as PrismaService);
 
@@ -71,7 +72,7 @@ describe("AttendanceService", () => {
     ])).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it("makes identical bulk marks idempotent and queues one guardian event", async () => {
+  it("makes identical bulk marks idempotent and queues one parent notification", async () => {
     const persisted: Array<{
       id: string;
       pupilId: string;
@@ -83,6 +84,8 @@ describe("AttendanceService", () => {
     }> = [];
     const auditCreate = jest.fn().mockResolvedValue({});
     const noteCreate = jest.fn().mockResolvedValue({});
+    const notificationCreate = jest.fn().mockResolvedValue({ id: "notification-1" });
+    const notificationDeliveryCreate = jest.fn().mockResolvedValue({});
     const outboxCreate = jest.fn().mockResolvedValue({});
     const transaction = {
       attendanceRecord: {
@@ -102,9 +105,11 @@ describe("AttendanceService", () => {
       attendanceNote: { create: noteCreate },
       pupilContact: {
         findMany: jest.fn().mockResolvedValue([
-          { pupilId: "pupil-1", guardianPersonId: "guardian-person-1" },
+          { pupilId: "pupil-1", guardian: { person: { userId: "parent-user-1" } } },
         ]),
       },
+      notification: { create: notificationCreate },
+      notificationDelivery: { create: notificationDeliveryCreate },
       auditEvent: { create: auditCreate },
       outboxEvent: { create: outboxCreate },
     };
@@ -113,7 +118,7 @@ describe("AttendanceService", () => {
         findFirst: jest.fn().mockResolvedValue({ id: "session-1", sessionDate: new Date("2026-09-30T00:00:00.000Z") }),
       },
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "ATTENDANCE_OFFICER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("ATTENDANCE_OFFICER")] }),
       },
       attendanceCode: {
         findMany: jest.fn().mockResolvedValue([
@@ -138,52 +143,88 @@ describe("AttendanceService", () => {
     expect(second.changed).toBe(0);
     expect(auditCreate).toHaveBeenCalledTimes(1);
     expect(noteCreate).toHaveBeenCalledTimes(1);
+    expect(notificationCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        schoolId: "school-1",
+        recipientUserId: "parent-user-1",
+      }),
+    }));
+    expect(notificationDeliveryCreate).toHaveBeenCalledTimes(1);
     expect(outboxCreate).toHaveBeenCalledTimes(1);
+    expect(outboxCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ eventType: "notification.email" }),
+    }));
   });
 
-  it("uses the approved denominator and flags attendance below 90 percent", async () => {
-    const records = [
-      ...Array.from({ length: 9 }, () => ({
-        pupilId: "pupil-at-threshold",
-        attendanceCode: "P",
-        code: { countsAsPresent: true },
-        session: { sessionDate: new Date("2026-09-30T00:00:00.000Z"), sessionType: "morning" },
-        pupil: { admissionNumber: "A1", person: { legalFirstName: "Alex", preferredName: null, lastName: "Able" }, enrolments: [] },
-      })),
-      {
-        pupilId: "pupil-at-threshold",
-        attendanceCode: "I",
-        code: { countsAsPresent: false },
-        session: { sessionDate: new Date("2026-09-30T00:00:00.000Z"), sessionType: "afternoon" },
-        pupil: { admissionNumber: "A1", person: { legalFirstName: "Alex", preferredName: null, lastName: "Able" }, enrolments: [] },
+  it("uses opened AM/PM sessions as the denominator and counts unmarked sessions as absent", async () => {
+    const pupilNames = {
+      "pupil-at-threshold": {
+        admissionNumber: "A1",
+        person: { legalFirstName: "Alex", preferredName: null, lastName: "Able" },
       },
-      ...Array.from({ length: 8 }, () => ({
-        pupilId: "pupil-below-threshold",
-        attendanceCode: "P",
-        code: { countsAsPresent: true },
-        session: { sessionDate: new Date("2026-09-30T00:00:00.000Z"), sessionType: "morning" },
-        pupil: { admissionNumber: "B1", person: { legalFirstName: "Blair", preferredName: null, lastName: "Baker" }, enrolments: [] },
-      })),
-      ...Array.from({ length: 2 }, () => ({
-        pupilId: "pupil-below-threshold",
-        attendanceCode: "N",
-        code: { countsAsPresent: false },
-        session: { sessionDate: new Date("2026-09-30T00:00:00.000Z"), sessionType: "afternoon" },
-        pupil: { admissionNumber: "B1", person: { legalFirstName: "Blair", preferredName: null, lastName: "Baker" }, enrolments: [] },
-      })),
-    ];
+      "pupil-below-threshold": {
+        admissionNumber: "B1",
+        person: { legalFirstName: "Blair", preferredName: null, lastName: "Baker" },
+      },
+    };
+    const sessions = Array.from({ length: 10 }, (_, index) => {
+      const date = new Date(Date.UTC(2026, 8, 28 + Math.floor(index / 2)));
+      const records = [];
+      if (index < 9) {
+        records.push({
+          pupilId: "pupil-at-threshold",
+          attendanceCode: "P",
+          code: { countsAsPresent: true },
+        });
+      } else {
+        records.push({
+          pupilId: "pupil-at-threshold",
+          attendanceCode: "I",
+          code: { countsAsPresent: false },
+        });
+      }
+      if (index < 8) {
+        records.push({
+          pupilId: "pupil-below-threshold",
+          attendanceCode: "P",
+          code: { countsAsPresent: true },
+        });
+      } else if (index === 8) {
+        records.push({
+          pupilId: "pupil-below-threshold",
+          attendanceCode: "N",
+          code: { countsAsPresent: false },
+        });
+      }
+      return { sessionDate: date, records };
+    });
+    const enrolments = Object.entries(pupilNames).map(([pupilId, pupil]) => ({
+      pupilId,
+      startsOn: new Date("2026-09-01T00:00:00.000Z"),
+      endsOn: null,
+      yearGroup: { id: "year-7", code: "7", name: "Year 7" },
+      form: { id: "form-7a", code: "7A" },
+      pupil,
+    }));
     const service = new AttendanceService({
       academicYear: { findFirst: jest.fn().mockResolvedValue(null) },
-      attendanceRecord: { findMany: jest.fn().mockResolvedValue(records) },
+      attendanceSession: { findMany: jest.fn().mockResolvedValue(sessions) },
+      pupilEnrolment: { findMany: jest.fn().mockResolvedValue(enrolments) },
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "HEADTEACHER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("HEADTEACHER")] }),
       },
     } as unknown as PrismaService);
 
-    const report = await service.getReport("school-1", "user-1", { period: "day", date: "2026-09-30" });
+    const report = await service.getReport("school-1", "user-1", { period: "week", date: "2026-10-04" });
 
-    expect(report.totalMarks).toBe(20);
+    expect(report.totalMarks).toBe(19);
+    expect(report.totalPossibleSessions).toBe(20);
     expect(report.persistentAbsence.map(({ pupilId }) => pupilId)).toEqual(["pupil-below-threshold"]);
+    expect(report.persistentAbsence[0]).toMatchObject({
+      present: 8,
+      possibleSessions: 10,
+      attendanceRate: 0.8,
+    });
     expect(report.persistentAbsenceThreshold).toBe(0.9);
   });
 
@@ -191,21 +232,28 @@ describe("AttendanceService", () => {
     const service = new AttendanceService({
       academicYear: { findFirst: jest.fn().mockResolvedValue(null) },
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "HEADTEACHER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("HEADTEACHER")] }),
       },
-      attendanceRecord: {
+      attendanceSession: {
+        findMany: jest.fn().mockResolvedValue([{
+          sessionDate: new Date("2026-09-30T00:00:00.000Z"),
+          records: [{
+            pupilId: "pupil-1",
+            attendanceCode: "P",
+            code: { countsAsPresent: true },
+          }],
+        }]),
+      },
+      pupilEnrolment: {
         findMany: jest.fn().mockResolvedValue([{
           pupilId: "pupil-1",
-          attendanceCode: "P",
-          code: { countsAsPresent: true },
-          session: { sessionDate: new Date("2026-09-30T00:00:00.000Z"), sessionType: "morning" },
+          startsOn: new Date("2026-09-01T00:00:00.000Z"),
+          endsOn: null,
+          yearGroup: { id: "year-7", code: "7", name: "Year 7" },
+          form: { id: "form-7a", code: "7A" },
           pupil: {
             admissionNumber: "A1",
             person: { legalFirstName: "Alex", preferredName: null, lastName: "Able" },
-            enrolments: [{
-              yearGroup: { id: "year-7", code: "7", name: "Year 7" },
-              form: { id: "form-7a", code: "7A" },
-            }],
           },
         }]),
       },
@@ -213,62 +261,66 @@ describe("AttendanceService", () => {
 
     const report = await service.getReport("school-1", "user-1", { period: "day", date: "2026-09-30" });
 
-    expect(report.byYearGroup).toEqual([expect.objectContaining({ code: "7", attendanceRate: 1, totalMarks: 1 })]);
-    expect(report.byForm).toEqual([expect.objectContaining({ code: "7A", yearGroupCode: "7", attendanceRate: 1 })]);
+    expect(report.byYearGroup).toEqual([expect.objectContaining({
+      code: "7",
+      attendanceRate: 1,
+      totalMarks: 1,
+      possibleSessions: 1,
+    })]);
+    expect(report.byForm).toEqual([expect.objectContaining({
+      code: "7A",
+      yearGroupCode: "7",
+      attendanceRate: 1,
+      possibleSessions: 1,
+    })]);
   });
 
   it("uses academic-year attendance rather than one reporting day for persistent absence", async () => {
-    const reportRecords = [{
+    const yearToDateSessions = Array.from({ length: 10 }, (_, index) => ({
+      sessionDate: new Date(Date.UTC(2026, 8, 21 + index)),
+      records: [{
+        pupilId: "pupil-1",
+        attendanceCode: index === 9 ? "I" : "P",
+        code: { countsAsPresent: index !== 9 },
+      }],
+    }));
+    const enrolment = {
       pupilId: "pupil-1",
-      attendanceCode: "I",
-      code: { countsAsPresent: false },
-      session: { sessionDate: new Date("2026-09-30T00:00:00.000Z"), sessionType: "morning" },
+      startsOn: new Date("2026-09-01T00:00:00.000Z"),
+      endsOn: null,
+      yearGroup: { id: "year-7", code: "7", name: "Year 7" },
+      form: { id: "form-7a", code: "7A" },
       pupil: {
         admissionNumber: "A1",
         person: { legalFirstName: "Alex", preferredName: null, lastName: "Able" },
-        enrolments: [],
       },
-    }];
-    const yearToDateRecords = [
-      ...Array.from({ length: 9 }, () => ({
-        pupilId: "pupil-1",
-        code: { countsAsPresent: true },
-        pupil: {
-          admissionNumber: "A1",
-          person: { legalFirstName: "Alex", preferredName: null, lastName: "Able" },
-        },
-      })),
-      {
-        pupilId: "pupil-1",
-        code: { countsAsPresent: false },
-        pupil: {
-          admissionNumber: "A1",
-          person: { legalFirstName: "Alex", preferredName: null, lastName: "Able" },
-        },
-      },
-    ];
+    };
     const service = new AttendanceService({
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "HEADTEACHER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("HEADTEACHER")] }),
       },
       academicYear: { findFirst: jest.fn().mockResolvedValue({ startsOn: new Date("2026-09-01T00:00:00.000Z") }) },
-      attendanceRecord: {
+      attendanceSession: {
         findMany: jest.fn()
-          .mockResolvedValueOnce(reportRecords)
-          .mockResolvedValueOnce(yearToDateRecords),
+          .mockResolvedValueOnce([yearToDateSessions[9]])
+          .mockResolvedValueOnce(yearToDateSessions),
+      },
+      pupilEnrolment: {
+        findMany: jest.fn().mockResolvedValue([enrolment]),
       },
     } as unknown as PrismaService);
 
     const report = await service.getReport("school-1", "user-1", { period: "day", date: "2026-09-30" });
 
     expect(report.totalMarks).toBe(1);
+    expect(report.totalPossibleSessions).toBe(1);
     expect(report.persistentAbsence).toEqual([]);
   });
 
   it("requires teacher attendance reports to select a class group", async () => {
     const service = new AttendanceService({
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "TEACHER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("TEACHER")] }),
       },
       attendanceRecord: { findMany: jest.fn() },
     } as unknown as PrismaService);
@@ -290,7 +342,7 @@ describe("AttendanceService", () => {
     }]);
     const service = new AttendanceService({
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "TEACHER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("TEACHER")] }),
       },
       classGroup: {
         findMany: jest.fn().mockResolvedValue([{
@@ -325,7 +377,7 @@ describe("AttendanceService", () => {
     const sessionFindMany = jest.fn().mockResolvedValue([]);
     const service = new AttendanceService({
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "TEACHER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("TEACHER")] }),
       },
       classGroup: { findMany: jest.fn().mockResolvedValue([{ id: "class-assigned" }]) },
       attendanceSession: { findMany: sessionFindMany },
@@ -350,7 +402,7 @@ describe("AttendanceService", () => {
     }]);
     const service = new AttendanceService({
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "TEACHER" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("TEACHER")] }),
       },
       attendanceSession: {
         findFirst: jest.fn().mockResolvedValue({
@@ -419,7 +471,7 @@ describe("AttendanceService", () => {
     const prisma = {
       pupilContact: { findFirst: jest.fn().mockResolvedValue({ schoolId: "school-1" }) },
       schoolMembership: {
-        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [{ role: { code: "PARENT" } }] }),
+        findFirst: jest.fn().mockResolvedValue({ membershipRoles: [schoolMembershipRole("PARENT")] }),
       },
       attendanceRecord: { findMany },
     } as unknown as PrismaService;
