@@ -285,6 +285,8 @@ pnpm build
 pnpm db:validate
 ```
 
+`pnpm build` generates the Prisma client before compiling the NestJS application.
+
 Readiness requires a working PostgreSQL connection. Do not use production
 credentials or production data for local development. Migrations are
 versioned under `prisma/migrations/`; never reset a production database.
