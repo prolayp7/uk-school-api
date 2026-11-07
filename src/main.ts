@@ -3,15 +3,25 @@ import { ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { json, urlencoded } from "express";
 import { ApiExceptionFilter } from "./common/api-exception.filter";
 import { RequestIdMiddleware } from "./common/request-id.middleware";
 import { AppModule } from "./app.module";
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, bodyParser: false });
   const config = app.get(ConfigService);
   const requestIdMiddleware = new RequestIdMiddleware();
 
+  app.use(
+    json({
+      limit: "3mb",
+      verify: (request, _response, buffer) => {
+        Object.assign(request, { rawBody: Buffer.from(buffer) });
+      },
+    }),
+  );
+  app.use(urlencoded({ extended: true, limit: "3mb" }));
   app.setGlobalPrefix("api/v1");
   app.use(requestIdMiddleware.use.bind(requestIdMiddleware));
   app.useGlobalPipes(

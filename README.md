@@ -10,18 +10,18 @@ Requirements: Node.js 22+, pnpm 9+, and PostgreSQL 15+.
 
 1. Install dependencies with `pnpm install`.
 2. Copy `.env.example` to `.env` and set `DATABASE_URL` to the restricted
-	runtime role. Copy `.env.migration.example` to `.env.migration` and set
-	`MIGRATION_DATABASE_URL` to a local migration-owner connection.
+   runtime role. Copy `.env.migration.example` to `.env.migration` and set
+   `MIGRATION_DATABASE_URL` to a local migration-owner connection.
 3. Generate the Prisma client with `pnpm prisma:generate`. Apply schema changes
-	with `pnpm db:migrate:dev` locally or `npx prisma migrate deploy` for a
-	versioned deployment. Prisma CLI loads `.env.migration` for migration
-	commands; Nest loads only `.env` and continues to use `DATABASE_URL`.
+   with `pnpm db:migrate:dev` locally or `npx prisma migrate deploy` for a
+   versioned deployment. Prisma CLI loads `.env.migration` for migration
+   commands; Nest loads only `.env` and continues to use `DATABASE_URL`.
 4. Create the runtime role with PostgreSQL's `\password` command and grant it
-	only application-table DML. Revoke access to `public._prisma_migrations` and
-	set default privileges for future application tables under the migration
-	owner.
+   only application-table DML. Revoke access to `public._prisma_migrations` and
+   set default privileges for future application tables under the migration
+   owner.
 5. Start the API with `pnpm start:dev`. Keep `.env.migration` out of source
-	control and never use its owner connection to run the API.
+   control and never use its owner connection to run the API.
 
 Set `FILE_STORAGE_DIR` to an absolute directory outside the application
 repositories. The API creates feature subdirectories (including `parents/`)
@@ -119,18 +119,141 @@ existing school-scope and website permission checks.
 Authenticated, school-scoped
 `/api/v1/erp/website` routes support page listing, immutable version creation,
 review, distinct-author approval, scheduled or immediate publication,
-unpublishing, archiving, and retrying cache revalidation. CMS requests require
+unpublishing, archiving, and retrying cache revalidation. A SUPER_ADMIN who
+authored the current draft can publish it directly with
+`POST /api/v1/erp/website/pages/{pageId}/publish-draft`; other drafts still
+require review and approval by a different publisher. CMS requests require
 the active school context (`x-school-id` when the user belongs to multiple
 schools); responses are `private, no-store`.
 
 CMS data is stored in the versioned `website_pages` and
 `website_page_versions` tables. The `contentType` allow-list defines supported
-homepage, page, navigation, news, staff, policy, document, admissions, results,
-school-information, and settings content. Unknown content properties are
-rejected, content is capped at 64 KiB, and public links must be HTTPS or
-site-relative. A draft revision does not replace the currently published
-version; published slugs are tracked separately to prevent draft URL changes
-from displacing live pages.
+homepage, page, navigation, news, blog, staff, policy, document, admissions,
+results, school-information, pathways (`pathways` content type), timelines
+(`timeline` content type), and settings content. Page bodies can
+reference published pathways or timeline components by stable record ID; the
+public page projection resolves only published components.
+The development seeder creates a published “Our Journey Through the Years”
+timeline with the four milestone entries shown in the website design reference.
+Unknown content properties are rejected, standard CMS content is capped at
+64 KiB, and public links must be HTTPS or site-relative. Blog content accepts
+the editor's validated rich text JSON and SEO/social metadata, with a 2 MiB
+content limit. A draft revision
+does not replace the currently published version; published slugs are tracked
+separately to prevent draft URL changes from displacing live pages.
+
+### Website menus
+
+Menus use the versioned website navigation content type. CMS menu changes
+create draft versions and use the existing review, publish, archive, and cache
+revalidation workflow. All CMS routes require the website CMS session and
+`x-school-id` when the account belongs to multiple schools.
+
+| Method | Route                                                      | Purpose                                                                   |
+| ------ | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `GET`  | `/api/v1/erp/website/menus?limit=50&offset=0&status=draft` | List current header, footer, and utility menu drafts; status is optional. |
+| `GET`  | `/api/v1/erp/website/menus/{menuId}`                       | Retrieve a menu's current CMS version.                                    |
+| `POST` | `/api/v1/erp/website/menus`                                | Create a menu as a draft.                                                 |
+| `PUT`  | `/api/v1/erp/website/menus/{menuId}`                       | Create a new draft version of a menu.                                     |
+
+Menu bodies contain `title`, lowercase hyphenated `slug`, and `category`
+(`header`, `footer`, or `utility`). Header menus also require `style` (`simple`,
+`dropdown`, or `mega`) and a top-level `href`. Utility links use `simple` style
+and a site-relative `href`. Dropdown menus provide an
+`items` array of `{label, href, external?}` links; mega menus provide `columns`
+with a `heading`, optional `imageUrl`/`imageAlt`, and an `items` array of the
+same links. A simple menu has no `items` or `columns`. Footer menus use `title`
+as the column heading and an `items` array of links; footer menu style is not
+used. Links accept an optional `active` flag (default `true`); inactive links
+remain available in the CMS but are omitted from public menu responses. Menus
+also accept an optional `active` flag (default `true`) and integer
+`sortOrder` from 0 to 10000. Mega menus may also specify an `eyebrow` and a
+`featuredCard` with `eyebrow`, `title`, `description`, `ctaLabel`, and
+site-relative `href`.
+External destinations must use HTTPS, internal destinations must be
+site-relative, and menu images require alternative text.
+
+The public menu projection requires `?schoolCode=...` and includes only
+published, active versions:
+
+| Method | Route                                                | Purpose                                                                                                 |
+| ------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/v1/website/menus?schoolCode={schoolCode}`      | Retrieve published `headerMenus`, `footerMenus`, and `utilityMenus`, ordered by `sortOrder` then title. |
+| `GET`  | `/api/v1/website/navigation?schoolCode={schoolCode}` | Return the legacy `navigation` object plus the new published menu groups.                               |
+| `GET`  | `/api/v1/website/homepage?schoolCode={schoolCode}`   | Return legacy navigation and published menu groups alongside homepage content.                          |
+
+Each menu projection includes its `category`, `style`, primary `href`,
+`items`, `columns`, `eyebrow`, `featuredCard`, `active`, and `sortOrder`.
+Inactive links and footer groups with no active links are omitted from public
+projections. Column and item array order is preserved.
+
+Existing legacy navigation content remains supported and is not returned as a
+new-style menu. Publishing or updating a menu does not bypass the existing
+website workflow.
+
+### Development website navigation and page seeds
+
+`pnpm db:seed` includes the initial school navigation for the local
+`WESTBRIDGE-ACADEMY` development school. The command runs the complete
+development dataset seed, is restricted to a local PostgreSQL database, and
+must not be used against production. Apply migrations and generate the Prisma
+client before running it.
+
+The seed creates six primary menus, four utility links, and the five
+recommended footer columns, plus statutory-information and legal footer areas.
+It also creates a published CMS page for each unique internal footer link,
+including nested paths such as `/our-school/head`. These pages contain clearly
+labelled starter copy for school staff to replace with approved information;
+they do not invent school-specific facts or policies.
+
+Seed-owned menu and page records use unique `seedKey` values on `website_pages`.
+Repeated runs update only the original published version when it is still at
+version 1; records with later CMS versions, drafts, or archives are left
+unchanged. Unrelated CMS records are never deleted or overwritten. A collision
+with a reserved seed slug fails the transaction rather than changing the
+existing record. Initial navigation and starter pages are published so the
+public API can return them immediately; subsequent CMS edits continue through
+the existing review and publishing workflow.
+
+### Blog content
+
+The authenticated, school-scoped CMS blog routes are:
+
+| Method | Route                                                     | Purpose                                                                |
+| ------ | --------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `GET`  | `/api/v1/erp/website/blog?limit=50&offset=0&status=draft` | List blogs; `status` is optional and uses the website workflow states. |
+| `GET`  | `/api/v1/erp/website/blog/{blogId}`                       | Retrieve the current CMS version of a blog.                            |
+| `POST` | `/api/v1/erp/website/blog`                                | Create a blog as a draft version.                                      |
+| `PUT`  | `/api/v1/erp/website/blog/{blogId}`                       | Create a new draft version for an existing blog.                       |
+| `POST` | `/api/v1/erp/website/blog/{blogId}/main-image`            | Upload or replace the main image as a new draft version.               |
+
+CMS routes require the website CMS session and `x-school-id` when the account
+belongs to multiple schools. Create and update bodies contain `title`,
+lowercase hyphenated `slug`, and a `content` object. Blog `content` supports
+`excerpt`, `mainImageUrl`, TipTap JSON `body`, `metaKeywords`, and the
+allow-listed `openGraph`, `twitter`, and structured-data `schema` objects.
+Optional `seoTitle` and `seoDescription` are top-level fields. Unsupported
+properties, editor nodes/marks, invalid text alignment or table cell
+attributes, and unsafe URLs are rejected. Paragraph and heading alignment and
+TipTap table cell spans/column widths are preserved. The main-image upload is
+`multipart/form-data` with one `image` field; accepted image types
+are PNG, JPEG, WebP, GIF, and AVIF, up to 10 MiB. Images are converted to WebP
+in the configured file storage and the returned public image URL is associated
+with the new draft version.
+
+Public blog projections require `?schoolCode=...`:
+
+| Method | Route                                                         | Purpose                            |
+| ------ | ------------------------------------------------------------- | ---------------------------------- |
+| `GET`  | `/api/v1/website/blog?schoolCode={schoolCode}&limit=20`       | List published blogs.              |
+| `GET`  | `/api/v1/website/blog/{slug}?schoolCode={schoolCode}`         | Retrieve a published blog by slug. |
+| `GET`  | `/api/v1/website/blog/{blogId}/image?schoolCode={schoolCode}` | Retrieve its published main image. |
+
+Public routes expose published, allow-listed content only. Blog publishing,
+review, scheduling, and unpublishing use the existing versioned website-page
+workflow routes. JSON request parsing allows up to 3 MiB to accommodate the
+blog editor's validated content while preserving the raw request body used to
+verify payment webhooks.
 
 Public projections are available under `/api/v1/website` and require an
 explicit `?schoolCode=...` selector. They return only allow-listed website

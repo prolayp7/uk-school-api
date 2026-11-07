@@ -359,23 +359,23 @@ model PupilProfile {
 }
 
 model StaffProfile {
-  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  schoolId       String          @map("school_id") @db.Uuid
-  personId       String          @map("person_id") @db.Uuid
-  departmentId   String?         @map("department_id") @db.Uuid
-  staffNumber    String          @map("staff_number") @db.VarChar(32)
-  staffType      String          @map("staff_type") @db.VarChar(32)
-  jobTitle       String          @map("job_title") @db.VarChar(120)
-  email          String          @db.VarChar(320)
-  startDate      DateTime        @map("start_date") @db.Date
-  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  school         School          @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  person         Person          @relation(fields: [schoolId, personId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
-  department     Department?     @relation(fields: [schoolId, departmentId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
-  tutorForms     Form[]
-  classes        ClassGroup[]
-  timetableSlots TimetableSlot[]
+  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId         String                 @map("school_id") @db.Uuid
+  personId         String                 @map("person_id") @db.Uuid
+  departmentId     String?                @map("department_id") @db.Uuid
+  staffNumber      String                 @map("staff_number") @db.VarChar(32)
+  staffType        String                 @map("staff_type") @db.VarChar(32)
+  jobTitle         String                 @map("job_title") @db.VarChar(120)
+  email            String                 @db.VarChar(320)
+  startDate        DateTime               @map("start_date") @db.Date
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  school           School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  person           Person                 @relation(fields: [schoolId, personId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  department       Department?            @relation(fields: [schoolId, departmentId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  tutorForms       Form[]
+  classes          ClassGroup[]
+  timetableSlots   TimetableSlot[]
   complianceRecord StaffComplianceRecord?
 
   @@unique([schoolId, id], map: "staff_profiles_school_id_key")
@@ -386,25 +386,25 @@ model StaffProfile {
 }
 
 model StaffComplianceRecord {
-  id                            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  schoolId                      String       @map("school_id") @db.Uuid
-  staffProfileId                String       @map("staff_profile_id") @db.Uuid
-  identityVerifiedOn            DateTime?    @map("identity_verified_on") @db.Date
-  rightToWorkVerifiedOn         DateTime?    @map("right_to_work_verified_on") @db.Date
-  dbsCheckStatus                String       @default("not_started") @map("dbs_check_status") @db.VarChar(24)
-  dbsCheckedOn                  DateTime?    @map("dbs_checked_on") @db.Date
-  barredListCheckedOn           DateTime?    @map("barred_list_checked_on") @db.Date
-  prohibitionCheckedOn          DateTime?    @map("prohibition_checked_on") @db.Date
-  qualificationsVerifiedOn      DateTime?    @map("qualifications_verified_on") @db.Date
-  referencesVerifiedOn          DateTime?    @map("references_verified_on") @db.Date
-  employmentHistoryVerifiedOn   DateTime?    @map("employment_history_verified_on") @db.Date
-  safeguardingTrainingCompletedOn DateTime?   @map("safeguarding_training_completed_on") @db.Date
-  updatedByUserId               String       @map("updated_by_user_id") @db.Uuid
-  createdAt                     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  school                        School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  staffProfile                  StaffProfile @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
-  updatedBy                     User         @relation(fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  schoolId                        String       @map("school_id") @db.Uuid
+  staffProfileId                  String       @map("staff_profile_id") @db.Uuid
+  identityVerifiedOn              DateTime?    @map("identity_verified_on") @db.Date
+  rightToWorkVerifiedOn           DateTime?    @map("right_to_work_verified_on") @db.Date
+  dbsCheckStatus                  String       @default("not_started") @map("dbs_check_status") @db.VarChar(24)
+  dbsCheckedOn                    DateTime?    @map("dbs_checked_on") @db.Date
+  barredListCheckedOn             DateTime?    @map("barred_list_checked_on") @db.Date
+  prohibitionCheckedOn            DateTime?    @map("prohibition_checked_on") @db.Date
+  qualificationsVerifiedOn        DateTime?    @map("qualifications_verified_on") @db.Date
+  referencesVerifiedOn            DateTime?    @map("references_verified_on") @db.Date
+  employmentHistoryVerifiedOn     DateTime?    @map("employment_history_verified_on") @db.Date
+  safeguardingTrainingCompletedOn DateTime?    @map("safeguarding_training_completed_on") @db.Date
+  updatedByUserId                 String       @map("updated_by_user_id") @db.Uuid
+  createdAt                       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                       DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  school                          School       @relation(fields: [schoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  staffProfile                    StaffProfile @relation(fields: [schoolId, staffProfileId], references: [schoolId, id], onDelete: Restrict, onUpdate: Cascade)
+  updatedBy                       User         @relation(fields: [updatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([schoolId, id], map: "staff_compliance_records_school_id_key")
   @@unique([schoolId, staffProfileId], map: "staff_compliance_records_school_staff_key")
@@ -1431,6 +1431,7 @@ model WebsitePage {
   id                     String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   schoolId               String               @map("school_id") @db.Uuid
   slug                   String               @db.VarChar(180)
+  seedKey                String?              @map("seed_key") @db.VarChar(100)
   contentType            String               @map("content_type") @db.VarChar(32)
   title                  String               @db.VarChar(200)
   publishedSlug          String?              @map("published_slug") @db.VarChar(180)
@@ -1446,6 +1447,7 @@ model WebsitePage {
 
   @@unique([schoolId, id], map: "website_pages_school_id_key")
   @@unique([schoolId, slug], map: "website_pages_school_slug_key")
+  @@unique([schoolId, seedKey], map: "website_pages_school_seed_key")
   @@unique([schoolId, contentType, publishedSlug], map: "website_pages_school_published_slug_key")
   @@index([schoolId, status, contentType, updatedAt(sort: Desc)], map: "website_pages_cms_list_idx")
   @@index([schoolId, publishedVersionNumber, contentType], map: "website_pages_public_idx")
