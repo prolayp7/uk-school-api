@@ -524,6 +524,107 @@ describe("WebsiteService", () => {
     );
   });
 
+  it("saves headteacher welcome components with an allow-listed content shape", async () => {
+    const pageCreate = jest.fn().mockResolvedValue({
+      id: "page-1",
+      slug: "our-school",
+      contentType: "page",
+      title: "Our School",
+      status: "draft",
+      currentVersionNumber: 1,
+    });
+    const transaction = {
+      websitePage: { create: pageCreate },
+      auditEvent: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const prisma = {
+      schoolMembership: editorMembership,
+      $transaction: jest.fn(async (callback) => callback(transaction)),
+    } as unknown as PrismaService;
+    const welcomeContent = {
+      image: "/images/headteacher.jpg",
+      imageAlt: "Headteacher Eleanor Vance",
+      roleBadge: "11th Warden & Headmistress",
+      heading: "Welcome to Our School",
+      quote: "A lifelong flame.",
+      description: "Welcome to our school community.",
+      philosophy: "We celebrate every pupil.",
+      signature: "Eleanor Vance",
+      name: "Dr. Eleanor Vance",
+      qualifications: "MA (Oxon), PhD",
+      designation: "Headmistress",
+      ctaText: "Read the Full Welcome",
+      ctaUrl: "/our-school/welcome",
+    };
+
+    await new WebsiteService(prisma).createPage("school-1", "editor-1", {
+      slug: "our-school",
+      title: "Our School",
+      contentType: "page",
+      content: {
+        heading: "Our School",
+        body: [{ type: "headteacher-welcome", content: welcomeContent }],
+      },
+    });
+
+    expect(pageCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          versions: {
+            create: expect.objectContaining({
+              content: {
+                heading: "Our School",
+                body: [{ type: "headteacher-welcome", content: welcomeContent }],
+              },
+            }),
+          },
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    ["image", "javascript:alert(1)"],
+    ["ctaUrl", "javascript:alert(1)"],
+  ])("rejects an unsafe headteacher %s URL", async (field, url) => {
+    const transaction = jest.fn();
+    const prisma = {
+      schoolMembership: editorMembership,
+      $transaction: transaction,
+    } as unknown as PrismaService;
+
+    await expect(
+      new WebsiteService(prisma).createPage("school-1", "editor-1", {
+        slug: "our-school",
+        title: "Our School",
+        contentType: "page",
+        content: {
+          heading: "Our School",
+          body: [{
+            type: "headteacher-welcome",
+            content: {
+              image: "/images/headteacher.jpg",
+              imageAlt: "Headteacher portrait",
+              roleBadge: "Headteacher",
+              heading: "Welcome",
+              quote: "A quote.",
+              description: "Welcome message.",
+              philosophy: "Our philosophy.",
+              signature: "Headteacher",
+              name: "Headteacher",
+              qualifications: "Qualifications",
+              designation: "Headteacher",
+              ctaText: "Read more",
+              ctaUrl: "/welcome",
+              [field]: url,
+            },
+          }],
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it("rejects unknown content properties rather than storing private ERP fields", async () => {
     const transaction = jest.fn();
     const prisma = {

@@ -169,6 +169,7 @@ function sanitizeBody(value: unknown): Prisma.InputJsonArray {
       link: ["type", "url", "label"],
       pathways: ["type", "componentId"],
       timeline: ["type", "componentId"],
+      "headteacher-welcome": ["type", "content"],
     };
     const keys = allowedKeys[type];
     if (!keys || Object.keys(block).some((key) => !keys.includes(key))) {
@@ -204,6 +205,102 @@ function sanitizeBody(value: unknown): Prisma.InputJsonArray {
       return {
         type,
         componentId: block.componentId,
+      };
+    }
+    if (type === "headteacher-welcome") {
+      if (!isRecord(block.content)) {
+        throw new BadRequestException(
+          `body[${index}].content must contain the headteacher welcome fields.`,
+        );
+      }
+      const content = block.content;
+      const allowedContentKeys = [
+        "image",
+        "imageAlt",
+        "roleBadge",
+        "heading",
+        "quote",
+        "description",
+        "philosophy",
+        "signature",
+        "name",
+        "qualifications",
+        "designation",
+        "ctaText",
+        "ctaUrl",
+      ];
+      if (
+        Object.keys(content).length !== allowedContentKeys.length ||
+        Object.keys(content).some((key) => !allowedContentKeys.includes(key))
+      ) {
+        throw new BadRequestException(
+          `body[${index}].content contains unsupported or missing headteacher welcome fields.`,
+        );
+      }
+      return {
+        type,
+        content: {
+          image: sanitizeUrl(content.image, `body[${index}].content.image`),
+          imageAlt: sanitizeText(
+            content.imageAlt,
+            `body[${index}].content.imageAlt`,
+            300,
+          ),
+          roleBadge: sanitizeText(
+            content.roleBadge,
+            `body[${index}].content.roleBadge`,
+            200,
+          ),
+          heading: sanitizeText(
+            content.heading,
+            `body[${index}].content.heading`,
+            200,
+          ),
+          quote: sanitizeText(
+            content.quote,
+            `body[${index}].content.quote`,
+            1000,
+          ),
+          description: sanitizeText(
+            content.description,
+            `body[${index}].content.description`,
+            4000,
+          ),
+          philosophy: sanitizeText(
+            content.philosophy,
+            `body[${index}].content.philosophy`,
+            4000,
+          ),
+          signature: sanitizeText(
+            content.signature,
+            `body[${index}].content.signature`,
+            100,
+          ),
+          name: sanitizeText(
+            content.name,
+            `body[${index}].content.name`,
+            200,
+          ),
+          qualifications: sanitizeText(
+            content.qualifications,
+            `body[${index}].content.qualifications`,
+            200,
+          ),
+          designation: sanitizeText(
+            content.designation,
+            `body[${index}].content.designation`,
+            200,
+          ),
+          ctaText: sanitizeText(
+            content.ctaText,
+            `body[${index}].content.ctaText`,
+            200,
+          ),
+          ctaUrl: sanitizeUrl(
+            content.ctaUrl,
+            `body[${index}].content.ctaUrl`,
+          ),
+        },
       };
     }
     if (type === "heading") {
